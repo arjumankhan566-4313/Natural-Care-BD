@@ -10,7 +10,7 @@
 - **GitHub**: https://github.com/arjumankhan566-4313/Natural-Care-BD
 - **Landing Page**: `/`
 - **Order Tracking**: `/track-order`
-- **Admin Panel**: `/admin` — ডিফল্ট লগইন: `admin` / `admin123` ⚠️ **প্রোডাকশনে অবশ্যই পাসওয়ার্ড পরিবর্তন করুন**
+- **Admin Panel**: `/admin` — লগইন: `arjumankhan566@gmail.com` (পাসওয়ার্ড admin panel মালিকের কাছে)
 - **Production**: এখনো ডিপ্লয় হয়নি (Cloudflare Pages ready)
 
 ## Completed Features (সম্পূর্ণ কার্যকর — শুধু UI নয়)

@@ -2,9 +2,9 @@
 -- NATURE CARE BANGLADESH - Seed Data (Demo)
 -- ============================================================
 
--- Default admin: username=admin, password=admin123 (SHA-256 with salt 'ncb_salt_2026')
+-- Default admin: username=arjumankhan566@gmail.com (SHA-256 with salt 'ncb_salt_2026')
 INSERT OR IGNORE INTO admin_users (username, password_hash, full_name, email, role) VALUES
-  ('admin', '1524a8e81fdb625a7c3c897573c45ad9ca016b0ea3ba388bb566b143be5d15f9', 'Super Admin', 'admin@naturecare.bd', 'super_admin');
+  ('arjumankhan566@gmail.com', '5c0a4b14ef48922e3a7e81a3750af8fe93913676a47d091acefdde28a121c883', 'Arjuman Khan', 'arjumankhan566@gmail.com', 'super_admin');
 
 -- Settings
 INSERT OR REPLACE INTO settings (key, value, category) VALUES
