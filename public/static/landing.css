@@ -1,0 +1,69 @@
+/* Nature Care Bangladesh - Landing Page Styles */
+html { scroll-behavior: smooth; }
+
+.btn-primary {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  transition: all .25s ease;
+  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35);
+}
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(5, 150, 105, 0.45); }
+.btn-primary:active { transform: translateY(0); }
+
+.pulse-cta { animation: ctaPulse 2s infinite; }
+@keyframes ctaPulse {
+  0%, 100% { box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35); }
+  50% { box-shadow: 0 4px 24px rgba(5, 150, 105, 0.65); }
+}
+
+.fade-up { opacity: 0; transform: translateY(24px); transition: opacity .6s ease, transform .6s ease; }
+.fade-up.visible { opacity: 1; transform: translateY(0); }
+
+.package-card { transition: all .25s ease; cursor: pointer; }
+.package-card:hover { transform: translateY(-3px); }
+.package-card.selected {
+  border-color: #059669 !important;
+  background: #ecfdf5;
+  box-shadow: 0 4px 16px rgba(5, 150, 105, 0.25);
+}
+
+.countdown-box {
+  background: linear-gradient(135deg, #064e3b, #065f46);
+  min-width: 64px;
+}
+
+.sticky-cta {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+  animation: slideUp .4s ease;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+}
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+.gallery-thumb { transition: all .2s; cursor: pointer; border: 2px solid transparent; }
+.gallery-thumb.active { border-color: #059669; }
+
+.faq-answer { max-height: 0; overflow: hidden; transition: max-height .3s ease; }
+.faq-item.open .faq-answer { max-height: 400px; }
+.faq-item.open .faq-icon { transform: rotate(180deg); }
+.faq-icon { transition: transform .3s; }
+
+.review-card { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: #059669 !important;
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.15);
+}
+
+.spinner {
+  width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.3);
+  border-top-color: #fff; border-radius: 50%;
+  animation: spin .8s linear infinite; display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.badge-float {
+  animation: floatBadge 3s ease-in-out infinite;
+}
+@keyframes floatBadge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+img { max-width: 100%; }
