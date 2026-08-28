@@ -13,6 +13,9 @@ import adminIncomplete from './routes/admin-incomplete'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+// Cache-busting version for static JS/CSS — bump on every deploy of frontend assets
+const ASSET_V = '5'
+
 // CORS for API routes
 app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }))
 
@@ -98,13 +101,13 @@ ${s.og_image ? `<meta property="og:image" content="${esc(s.og_image)}">` : ''}
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
-<link href="/static/landing.css" rel="stylesheet">
+<link href="/static/landing.css?v=${ASSET_V}" rel="stylesheet">
 ${pixelScript}${gaScript}${gtmScript}
 </head>
 <body class="bg-white text-gray-800" style="font-family:'Hind Siliguri',sans-serif">
 <div id="app"><div class="min-h-screen flex items-center justify-center"><div class="text-center"><div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div><p class="text-gray-500">লোড হচ্ছে...</p></div></div></div>
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
-<script src="/static/landing.js"></script>
+<script src="/static/landing.js?v=${ASSET_V}"></script>
 </body>
 </html>`)
 })
@@ -128,7 +131,7 @@ app.get('/track-order', async (c) => {
 <div id="track-app"></div>
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
 <script>window.SUPPORT_PHONE=${JSON.stringify(s.support_phone || '')};</script>
-<script src="/static/track.js"></script>
+<script src="/static/track.js?v=${ASSET_V}"></script>
 </body>
 </html>`)
 })
@@ -164,10 +167,10 @@ table{font-size:0.875rem}
 <body class="bg-gray-100">
 <div id="admin-app"></div>
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
-<script src="/static/admin.js"></script>
-<script src="/static/admin-views.js"></script>
-<script src="/static/admin-views2.js"></script>
-<script src="/static/admin-views3.js"></script>
+<script src="/static/admin.js?v=${ASSET_V}"></script>
+<script src="/static/admin-views.js?v=${ASSET_V}"></script>
+<script src="/static/admin-views2.js?v=${ASSET_V}"></script>
+<script src="/static/admin-views3.js?v=${ASSET_V}"></script>
 </body>
 </html>`)
 })

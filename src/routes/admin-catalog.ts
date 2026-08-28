@@ -120,7 +120,7 @@ couriers.use('*', requireAuth('couriers'))
 
 couriers.get('/', async (c) => {
   const rows = await c.env.DB.prepare(`
-    SELECT c.id, c.name, c.logo, c.has_api, c.delivery_charge, c.return_charge, c.cod_charge_percent, c.tracking_url_template, c.is_active,
+    SELECT c.id, c.name, c.logo, c.has_api, c.base_url, c.delivery_charge, c.return_charge, c.cod_charge_percent, c.tracking_url_template, c.is_active,
       CASE WHEN c.api_key != '' AND c.api_key IS NOT NULL THEN 1 ELSE 0 END as api_configured,
       (SELECT COUNT(*) FROM orders o WHERE o.courier_id = c.id AND o.is_deleted = 0) as total_orders,
       (SELECT COUNT(*) FROM orders o WHERE o.courier_id = c.id AND o.status = 'delivered' AND o.is_deleted = 0) as delivered,
@@ -151,14 +151,15 @@ couriers.put('/:id', async (c) => {
   const id = Number(c.req.param('id'))
   const b = await c.req.json()
   // Keep existing secrets if not resubmitted
-  const existing = await db.prepare('SELECT api_key, secret_key FROM couriers WHERE id = ?').bind(id).first<any>()
+  const existing = await db.prepare('SELECT api_key, secret_key, base_url, merchant_id FROM couriers WHERE id = ?').bind(id).first<any>()
   await db.prepare(`
     UPDATE couriers SET name=?, logo=?, has_api=?, api_key=?, secret_key=?, merchant_id=?, base_url=?,
       delivery_charge=?, return_charge=?, cod_charge_percent=?, tracking_url_template=?, is_active=? WHERE id=?
   `).bind(b.name, b.logo || '', b.has_api ? 1 : 0,
     b.api_key !== undefined && b.api_key !== '••••••••' ? b.api_key : (existing?.api_key || ''),
     b.secret_key !== undefined && b.secret_key !== '••••••••' ? b.secret_key : (existing?.secret_key || ''),
-    b.merchant_id || '', b.base_url || '',
+    b.merchant_id !== undefined ? (b.merchant_id || '') : (existing?.merchant_id || ''),
+    b.base_url ? b.base_url : (existing?.base_url || ''),
     Number(b.delivery_charge || 0), Number(b.return_charge || 0), Number(b.cod_charge_percent || 0), b.tracking_url_template || '', b.is_active === false ? 0 : 1, id).run()
   await auditLog(db, user.id, user.username, 'update', 'courier', String(id), `Courier updated: ${b.name}`)
   return c.json({ success: true })
