@@ -60,18 +60,23 @@
     }).catch(apiErr);
   }
   AV.addAdSpendModal = function () {
+    function hint(t) { return '<p class="text-[11px] text-gray-400 -mt-2 mb-3 leading-snug"><i class="fas fa-circle-info mr-1"></i>' + t + '</p>'; }
     modal('অ্যাড খরচ যোগ করুন',
-      field('ক্যাম্পেইন নাম *', inp('as-name')) +
+      field('ক্যাম্পেইন নাম *', inp('as-name', '', 'যেমন: শীতের অফার')) + hint('ফেসবুক ক্যাম্পেইনের নাম — নিজের চেনার জন্য যেকোনো নাম দিলেই হবে') +
       '<div class="grid grid-cols-2 gap-3">' +
-        field('Campaign ID', inp('as-cid', '', 'Meta campaign ID')) +
-        field('তারিখ *', inp('as-date', new Date().toISOString().slice(0, 10), '', 'date')) +
-        field('খরচ *', inp('as-amount', '', '25.50', 'number')) +
-        field('কারেন্সি', '<select id="as-currency" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white"><option value="USD">USD ($)</option><option value="BDT">BDT (৳)</option></select>') +
+        '<div>' + field('Campaign ID', inp('as-cid', '', 'Meta campaign ID')) + hint('Facebook Ads Manager-এ ক্যাম্পেইনের লম্বা সংখ্যার ID — এটা দিলে খরচ অটো অর্ডারে ভাগ হবে') + '</div>' +
+        '<div>' + field('তারিখ *', inp('as-date', new Date().toISOString().slice(0, 10), '', 'date')) + hint('কোন দিনের অ্যাড খরচ লিখছেন') + '</div>' +
+        '<div>' + field('খরচ *', inp('as-amount', '', '25.50', 'number')) + hint('ওই দিনে এই ক্যাম্পেইনে মোট কত খরচ হয়েছে') + '</div>' +
+        '<div>' + field('কারেন্সি', '<select id="as-currency" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white"><option value="USD">USD ($)</option><option value="BDT">BDT (৳)</option></select>') + hint('ফেসবুক ডলারে বিল করলে USD, টাকায় করলে BDT') + '</div>' +
         field('Adset ID', inp('as-adset')) + field('Ad ID', inp('as-adid')) +
       '</div>' +
-      field('নোট', inp('as-note')) +
+      hint('Adset/Ad ID ঐচ্ছিক — না দিলেও চলবে') +
+      field('নোট', inp('as-note', '', 'নিজের জন্য মন্তব্য (ঐচ্ছিক)')) +
       checkbox('as-distribute', true, 'এই ক্যাম্পেইনের অর্ডারগুলোতে খরচ ভাগ করে দিন (per-order ad cost)') +
-      '<p class="text-xs text-gray-400 mt-2">USD দিলে সেটিংসে দেওয়া রেট অনুযায়ী BDT-তে কনভার্ট হবে।</p>',
+      '<div class="bg-purple-50 rounded-lg p-3 mt-2 text-[11px] text-purple-800 leading-relaxed">' +
+        '<b><i class="fas fa-lightbulb mr-1"></i>কীভাবে অটো হিসাব হয়:</b> USD দিলে সেটিংসের রেট অনুযায়ী টাকায় কনভার্ট হবে। Campaign ID দিলে + উপরের টিক দেওয়া থাকলে — ওই তারিখে ওই ক্যাম্পেইন থেকে আসা অর্ডারগুলোতে খরচ সমান ভাগ হয়ে প্রতিটার নেট প্রফিট অটো আপডেট হবে।<br>' +
+        '<b class="mt-1 inline-block">শর্ত:</b> অ্যাডের লিংকে <code class="bg-purple-100 px-1 rounded">?campaign_id={{campaign.id}}</code> থাকতে হবে, নাহলে অর্ডার-ক্যাম্পেইন মিলবে না। শুধু নাম+খরচ দিলেও মোট খরচ রিপোর্টে যোগ হবে।' +
+      '</div>',
       '<button onclick="A.closeModal()" class="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">বাতিল</button>' +
       '<button onclick="AV.saveAdSpend()" class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold">সংরক্ষণ</button>');
   };
