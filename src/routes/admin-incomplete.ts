@@ -1,0 +1,259 @@
+// ============ Admin: Incomplete (abandoned) orders + Pixel setup ============
+import { Hono } from 'hono'
+import type { Bindings } from '../lib/helpers'
+import { auditLog, getSettings, setSetting, generateToken } from '../lib/helpers'
+import { requireAuth, AdminUser } from '../lib/auth'
+
+type Env = { Bindings: Bindings; Variables: { user: AdminUser } }
+const r = new Hono<Env>()
+
+// ---------- INCOMPLETE ORDERS ----------
+const inc = new Hono<Env>()
+inc.use('*', requireAuth('orders'))
+
+// List with filters + counts
+inc.get('/', async (c) => {
+  const db = c.env.DB
+  const status = c.req.query('status') || ''
+  const q = (c.req.query('q') || '').trim()
+  const page = Math.max(1, Number(c.req.query('page') || 1))
+  const limit = Math.min(100, Number(c.req.query('limit') || 30))
+  const offset = (page - 1) * limit
+
+  const conds: string[] = ['1=1']
+  const binds: any[] = []
+  if (status) { conds.push('status = ?'); binds.push(status) }
+  if (q) { conds.push('(phone LIKE ? OR customer_name LIKE ? OR district LIKE ?)'); binds.push(`%${q}%`, `%${q}%`, `%${q}%`) }
+  const where = conds.join(' AND ')
+
+  const [rows, total, counts] = await Promise.all([
+    db.prepare(`SELECT * FROM incomplete_orders WHERE ${where} ORDER BY updated_at DESC LIMIT ? OFFSET ?`).bind(...binds, limit, offset).all(),
+    db.prepare(`SELECT COUNT(*) as cnt FROM incomplete_orders WHERE ${where}`).bind(...binds).first<{ cnt: number }>(),
+    db.prepare(`SELECT status, COUNT(*) as cnt FROM incomplete_orders GROUP BY status`).all()
+  ])
+
+  const statusCounts: Record<string, number> = {}
+  for (const x of (counts.results || []) as any[]) statusCounts[x.status] = x.cnt
+
+  return c.json({
+    incomplete_orders: rows.results || [],
+    total: total?.cnt || 0, page, limit,
+    status_counts: statusCounts
+  })
+})
+
+// Update status / admin note
+inc.put('/:id', async (c) => {
+  const db = c.env.DB
+  const user = c.get('user')
+  const id = Number(c.req.param('id'))
+  const b = await c.req.json()
+  const allowed = ['incomplete', 'contacted', 'converted', 'discarded']
+  const existing = await db.prepare('SELECT id FROM incomplete_orders WHERE id = ?').bind(id).first()
+  if (!existing) return c.json({ error: 'not_found' }, 404)
+  if (b.status && !allowed.includes(b.status)) return c.json({ error: 'validation', message: 'ভুল স্ট্যাটাস' }, 400)
+
+  const sets: string[] = ['updated_at = CURRENT_TIMESTAMP']
+  const binds: any[] = []
+  if (b.status) { sets.push('status = ?'); binds.push(b.status) }
+  if (b.admin_note !== undefined) { sets.push('admin_note = ?'); binds.push(String(b.admin_note).slice(0, 500)) }
+  await db.prepare(`UPDATE incomplete_orders SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, id).run()
+  await auditLog(db, user.id, user.username, 'update', 'incomplete_order', String(id), `Incomplete order updated: ${b.status || 'note'}`)
+  return c.json({ success: true })
+})
+
+// Delete permanently
+inc.delete('/:id', async (c) => {
+  const user = c.get('user')
+  const id = Number(c.req.param('id'))
+  await c.env.DB.prepare('DELETE FROM incomplete_orders WHERE id = ?').bind(id).run()
+  await auditLog(c.env.DB, user.id, user.username, 'delete', 'incomplete_order', String(id), 'Incomplete order deleted')
+  return c.json({ success: true })
+})
+
+// Convert to real order (admin confirms over phone then converts)
+inc.post('/:id/convert', async (c) => {
+  const db = c.env.DB
+  const user = c.get('user')
+  const id = Number(c.req.param('id'))
+  const io = await db.prepare('SELECT * FROM incomplete_orders WHERE id = ?').bind(id).first<any>()
+  if (!io) return c.json({ error: 'not_found' }, 404)
+  if (io.status === 'converted' && io.order_id) return c.json({ error: 'already_converted', message: 'ইতিমধ্যে অর্ডারে কনভার্ট হয়েছে' }, 400)
+  if (!io.phone || !io.customer_name || !io.product_id) {
+    return c.json({ error: 'insufficient_data', message: 'কনভার্ট করতে নাম, ফোন ও প্রোডাক্ট থাকা আবশ্যক। বাকি তথ্য কাস্টমারের থেকে নিয়ে ম্যানুয়ালি অর্ডার করুন।' }, 400)
+  }
+
+  const product = await db.prepare('SELECT * FROM products WHERE id = ? AND is_deleted = 0').bind(io.product_id).first<any>()
+  if (!product) return c.json({ error: 'product_missing', message: 'প্রোডাক্টটি আর নেই' }, 400)
+
+  let subtotal = product.sale_price, qty = 1, unitPrice = product.sale_price, pkgName = null
+  if (io.package_id) {
+    const pkg = await db.prepare('SELECT * FROM product_packages WHERE id = ?').bind(io.package_id).first<any>()
+    if (pkg) { subtotal = pkg.price; qty = pkg.quantity; unitPrice = pkg.price / pkg.quantity; pkgName = pkg.name }
+  }
+  const settings = await getSettings(db, ['delivery_charge_dhaka', 'delivery_charge_outside'])
+  const isDhaka = /ঢাকা|dhaka/i.test(io.district || '')
+  const deliveryCharge = io.delivery_charge || (isDhaka ? Number(settings.delivery_charge_dhaka || 70) : Number(settings.delivery_charge_outside || 130))
+  const grandTotal = subtotal + deliveryCharge
+
+  // Upsert customer
+  let customer = await db.prepare('SELECT id FROM customers WHERE phone = ?').bind(io.phone).first<any>()
+  if (!customer) {
+    const cr = await db.prepare('INSERT INTO customers (name, phone, alt_phone, address, district, upazila) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(io.customer_name, io.phone, io.alt_phone || '', io.address || '', io.district || '', io.upazila || '').run()
+    customer = { id: cr.meta.last_row_id }
+  }
+
+  const orderNumber = `NCB-${Date.now().toString(36).toUpperCase().slice(-4)}${Math.floor(10000 + Math.random() * 90000)}`
+  const res = await db.prepare(`
+    INSERT INTO orders (order_number, customer_id, customer_name, phone, alt_phone, address, district, upazila,
+      order_note, subtotal, discount, delivery_charge, grand_total, status, risk_score, risk_level, risk_reasons,
+      product_cost, utm_source, utm_medium, utm_campaign, fbclid, campaign_id, adset_id, ad_id, order_source, ip_address, event_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'confirmed', 0, 'low', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'incomplete_recovery', ?, ?)
+  `).bind(
+    orderNumber, customer.id, io.customer_name, io.phone, io.alt_phone || '', io.address || '', io.district || '', io.upazila || '',
+    io.order_note || '', subtotal, deliveryCharge, grandTotal,
+    JSON.stringify(['Converted from incomplete order by admin']),
+    product.product_cost * qty,
+    io.utm_source || '', io.utm_medium || '', io.utm_campaign || '', io.fbclid || '',
+    io.campaign_id || '', io.adset_id || '', io.ad_id || '', io.ip_address || '', generateToken(16)
+  ).run()
+  const orderId = res.meta.last_row_id as number
+
+  await db.prepare('INSERT INTO order_items (order_id, product_id, package_id, product_name, package_name, quantity, unit_price, total_price, unit_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(orderId, product.id, io.package_id || null, product.name, pkgName, qty, unitPrice, subtotal, product.product_cost).run()
+  await db.prepare("INSERT INTO order_status_history (order_id, from_status, to_status, note, changed_by) VALUES (?, NULL, 'confirmed', ?, ?)")
+    .bind(orderId, `Recovered from incomplete order #${id} by ${user.username}`, user.username).run()
+  await db.prepare("UPDATE incomplete_orders SET status = 'converted', order_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(orderId, id).run()
+  await auditLog(db, user.id, user.username, 'convert', 'incomplete_order', String(id), `Converted to order ${orderNumber}`)
+
+  return c.json({ success: true, order_id: orderId, order_number: orderNumber })
+})
+
+r.route('/incomplete-orders', inc)
+
+// ---------- PIXEL SETUP (dedicated) ----------
+const PIXEL_KEYS = [
+  'meta_pixel_id', 'meta_pixel_enabled', 'meta_events_enabled',
+  'meta_capi_token', 'meta_capi_enabled', 'meta_test_event_code', 'meta_advanced_matching',
+  'ga_id', 'gtm_id', 'tiktok_pixel_id'
+]
+const PIXEL_SECRET = ['meta_capi_token']
+
+const pixel = new Hono<Env>()
+pixel.use('*', requireAuth('marketing'))
+
+// Pixel settings + health overview
+pixel.get('/', async (c) => {
+  const db = c.env.DB
+  const s = await getSettings(db, PIXEL_KEYS)
+  const out: Record<string, string> = {}
+  for (const k of PIXEL_KEYS) out[k] = PIXEL_SECRET.includes(k) && s[k] ? '••••••••' : (s[k] || '')
+
+  const [eventStats, recent, capiStats] = await Promise.all([
+    db.prepare(`SELECT event_name, COUNT(*) as cnt, SUM(sent_to_capi) as capi_sent FROM tracking_events WHERE created_at > datetime('now', '-7 days') GROUP BY event_name ORDER BY cnt DESC`).all(),
+    db.prepare(`SELECT id, event_id, event_name, event_data, source_url, sent_to_capi, capi_response, fbclid, created_at FROM tracking_events ORDER BY id DESC LIMIT 30`).all(),
+    db.prepare(`SELECT COUNT(*) as total, SUM(sent_to_capi) as sent, SUM(CASE WHEN capi_response LIKE 'error%' OR (capi_response != '' AND capi_response IS NOT NULL AND sent_to_capi = 0) THEN 1 ELSE 0 END) as failed FROM tracking_events WHERE created_at > datetime('now', '-7 days')`).first<any>()
+  ])
+
+  return c.json({
+    settings: out,
+    event_stats: eventStats.results || [],
+    recent_events: (recent.results || []).map((e: any) => ({ ...e, capi_response: (e.capi_response || '').slice(0, 200) })),
+    capi_stats: { total: capiStats?.total || 0, sent: capiStats?.sent || 0, failed: capiStats?.failed || 0 },
+    health: {
+      pixel_configured: !!(s.meta_pixel_id),
+      pixel_enabled: s.meta_pixel_enabled === '1',
+      capi_configured: !!(s.meta_capi_token),
+      capi_enabled: s.meta_capi_enabled === '1'
+    }
+  })
+})
+
+// Save pixel settings (only pixel keys — marketing_manager can manage without full settings perm)
+pixel.put('/', async (c) => {
+  const db = c.env.DB
+  const user = c.get('user')
+  const body = await c.req.json()
+  const updated: string[] = []
+  for (const [key, value] of Object.entries(body)) {
+    if (!PIXEL_KEYS.includes(key)) continue
+    if (typeof value !== 'string' && typeof value !== 'number') continue
+    const v = String(value)
+    if (PIXEL_SECRET.includes(key) && v === '••••••••') continue
+    await setSetting(db, key, v, 'tracking')
+    updated.push(key)
+  }
+  if (updated.length) await auditLog(db, user.id, user.username, 'update', 'pixel_settings', updated.join(','), `Pixel settings updated: ${updated.join(', ')}`)
+  return c.json({ success: true, updated })
+})
+
+// Send a server-side test event to verify CAPI connection
+pixel.post('/test-event', async (c) => {
+  const db = c.env.DB
+  const user = c.get('user')
+  const s = await getSettings(db, ['meta_pixel_id', 'meta_capi_token', 'meta_test_event_code'])
+  if (!s.meta_pixel_id || !s.meta_capi_token) {
+    return c.json({ error: 'not_configured', message: 'Pixel ID ও CAPI Token আগে সেট করুন' }, 400)
+  }
+  const eventId = 'test_' + generateToken(12)
+  const payload: any = {
+    data: [{
+      event_name: 'PageView',
+      event_time: Math.floor(Date.now() / 1000),
+      event_id: eventId,
+      action_source: 'website',
+      event_source_url: 'https://admin-test-event',
+      user_data: {
+        client_ip_address: c.req.header('cf-connecting-ip') || '127.0.0.1',
+        client_user_agent: c.req.header('user-agent') || 'admin-test'
+      }
+    }],
+    access_token: s.meta_capi_token
+  }
+  if (s.meta_test_event_code) payload.test_event_code = s.meta_test_event_code
+  try {
+    const resp = await fetch(`https://graph.facebook.com/v18.0/${s.meta_pixel_id}/events`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    })
+    const txt = await resp.text()
+    await auditLog(db, user.id, user.username, 'test', 'pixel_capi', eventId, `CAPI test event: ${resp.ok ? 'OK' : 'FAILED'}`)
+    return c.json({ success: resp.ok, status: resp.status, response: txt.slice(0, 500), event_id: eventId, test_event_code: s.meta_test_event_code || null })
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500)
+  }
+})
+
+r.route('/pixel', pixel)
+
+// ---------- HERO BANNERS ----------
+const banners = new Hono<Env>()
+banners.use('*', requireAuth('content'))
+
+banners.get('/', async (c) => {
+  const rows = await c.env.DB.prepare('SELECT * FROM hero_banners ORDER BY sort_order, id').all()
+  return c.json({ banners: rows.results || [] })
+})
+banners.post('/', async (c) => {
+  const user = c.get('user')
+  const b = await c.req.json()
+  if (!b.image_url) return c.json({ error: 'validation', message: 'ছবির URL দিন' }, 400)
+  const res = await c.env.DB.prepare('INSERT INTO hero_banners (image_url, title, subtitle, link_url, sort_order, is_active) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(b.image_url, b.title || '', b.subtitle || '', b.link_url || '', Number(b.sort_order || 0), b.is_active === false ? 0 : 1).run()
+  await auditLog(c.env.DB, user.id, user.username, 'create', 'banner', String(res.meta.last_row_id), 'Banner added')
+  return c.json({ success: true, id: res.meta.last_row_id })
+})
+banners.put('/:id', async (c) => {
+  const b = await c.req.json()
+  await c.env.DB.prepare('UPDATE hero_banners SET image_url=?, title=?, subtitle=?, link_url=?, sort_order=?, is_active=? WHERE id=?')
+    .bind(b.image_url, b.title || '', b.subtitle || '', b.link_url || '', Number(b.sort_order || 0), b.is_active === false ? 0 : 1, Number(c.req.param('id'))).run()
+  return c.json({ success: true })
+})
+banners.delete('/:id', async (c) => {
+  await c.env.DB.prepare('DELETE FROM hero_banners WHERE id = ?').bind(Number(c.req.param('id'))).run()
+  return c.json({ success: true })
+})
+
+r.route('/banners', banners)
+
+export default r

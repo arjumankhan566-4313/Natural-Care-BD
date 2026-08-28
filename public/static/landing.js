@@ -6,6 +6,18 @@
 
   var state = { data: null, cart: {}, utm: {}, submitting: false };
 
+  // ---- Checkout session id (for incomplete-order capture) ----
+  var sessionId = null;
+  try {
+    sessionId = sessionStorage.getItem('ncb_session_id');
+    if (!sessionId) {
+      sessionId = 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+      sessionStorage.setItem('ncb_session_id', sessionId);
+    }
+  } catch (e) {
+    sessionId = 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+  }
+
   // ---- UTM capture ----
   var params = new URLSearchParams(location.search);
   ['utm_source','utm_medium','utm_campaign','utm_term','utm_content','fbclid'].forEach(function (k) {
@@ -98,8 +110,7 @@
           '</div>' +
         '</div>' +
         '<div class="order-1 md:order-2 relative">' +
-          (product ? '<img src="' + esc(product.main_image) + '" alt="' + esc(product.name) + '" class="rounded-2xl shadow-2xl w-full" loading="eager">' +
-          (discountPct ? '<div class="badge-float absolute -top-3 -right-3 bg-red-500 text-white w-20 h-20 rounded-full flex flex-col items-center justify-center font-bold shadow-lg"><span class="text-xl">' + discountPct + '%</span><span class="text-xs">ছাড়</span></div>' : '') : '') +
+          renderHeroBanner(d, product, discountPct) +
         '</div>' +
       '</div>' +
     '</section>' +
@@ -201,9 +212,134 @@
     initCountdown();
     initScrollAnimations();
     initStickyCta();
+    initBannerSlider();
+    initAutosave();
     if (product) selectPackage(product.packages.length ? product.packages[0].id : 0);
     track('PageView', {});
     if (product) track('ViewContent', { content_name: product.name, content_ids: [String(product.id)], value: product.sale_price, currency: 'BDT' });
+  }
+
+  // ============ HERO BANNER SLIDER ============
+  function renderHeroBanner(d, product, discountPct) {
+    var banners = d.banners || [];
+    if (!banners.length) {
+      // Fallback: product main image (previous behaviour)
+      return (product ? '<img src="' + esc(product.main_image) + '" alt="' + esc(product.name) + '" class="rounded-2xl shadow-2xl w-full" loading="eager">' +
+        (discountPct ? '<div class="badge-float absolute -top-3 -right-3 bg-red-500 text-white w-20 h-20 rounded-full flex flex-col items-center justify-center font-bold shadow-lg"><span class="text-xl">' + discountPct + '%</span><span class="text-xs">৛াড়</span></div>' : '') : '');
+    }
+    var slides = banners.map(function (b, i) {
+      var img = '<img src="' + esc(b.image_url) + '" alt="' + esc(b.title || 'banner') + '" class="w-full h-full object-cover" loading="' + (i === 0 ? 'eager' : 'lazy') + '">';
+      var caption = (b.title || b.subtitle) ?
+        '<div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4 pt-10">' +
+          (b.title ? '<div class="text-white font-bold text-lg drop-shadow">' + esc(b.title) + '</div>' : '') +
+          (b.subtitle ? '<div class="text-white/90 text-sm drop-shadow">' + esc(b.subtitle) + '</div>' : '') +
+        '</div>' : '';
+      var inner = '<div class="relative w-full h-full">' + img + caption + '</div>';
+      if (b.link_url) inner = '<a href="' + esc(b.link_url) + '" class="block w-full h-full">' + inner + '</a>';
+      return '<div class="banner-slide absolute inset-0 transition-opacity duration-700 ' + (i === 0 ? 'opacity-100 z-10' : 'opacity-0 z-0') + '" data-slide="' + i + '">' + inner + '</div>';
+    }).join('');
+    var dots = banners.length > 1 ?
+      '<div class="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex gap-2">' +
+        banners.map(function (_, i) {
+          return '<button type="button" class="banner-dot w-2.5 h-2.5 rounded-full transition ' + (i === 0 ? 'bg-white' : 'bg-white/50') + '" data-dot="' + i + '" onclick="NCB.goBanner(' + i + ')" aria-label="banner ' + (i + 1) + '"></button>';
+        }).join('') +
+      '</div>' : '';
+    var arrows = banners.length > 1 ?
+      '<button type="button" onclick="NCB.goBanner(-1,true)" class="absolute left-2 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-black/30 hover:bg-black/50 text-white flex items-center justify-center" aria-label="previous"><i class="fas fa-chevron-left"></i></button>' +
+      '<button type="button" onclick="NCB.goBanner(1,true)" class="absolute right-2 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-black/30 hover:bg-black/50 text-white flex items-center justify-center" aria-label="next"><i class="fas fa-chevron-right"></i></button>' : '';
+    return '<div id="hero-banner" class="relative rounded-2xl shadow-2xl overflow-hidden w-full" style="aspect-ratio:4/3">' + slides + dots + arrows + '</div>';
+  }
+
+  var bannerIdx = 0, bannerTimer = null;
+  function showBanner(idx) {
+    var wrap = document.getElementById('hero-banner');
+    if (!wrap) return;
+    var slides = wrap.querySelectorAll('.banner-slide');
+    if (!slides.length) return;
+    bannerIdx = ((idx % slides.length) + slides.length) % slides.length;
+    slides.forEach(function (sl, i) {
+      sl.classList.toggle('opacity-100', i === bannerIdx);
+      sl.classList.toggle('z-10', i === bannerIdx);
+      sl.classList.toggle('opacity-0', i !== bannerIdx);
+      sl.classList.toggle('z-0', i !== bannerIdx);
+    });
+    wrap.querySelectorAll('.banner-dot').forEach(function (dt, i) {
+      dt.classList.toggle('bg-white', i === bannerIdx);
+      dt.classList.toggle('bg-white/50', i !== bannerIdx);
+    });
+  }
+  function initBannerSlider() {
+    bannerIdx = 0;
+    var wrap = document.getElementById('hero-banner');
+    if (!wrap) return;
+    var slides = wrap.querySelectorAll('.banner-slide');
+    if (slides.length < 2) return;
+    var secs = Number((state.data.settings.banner_autoplay_seconds || '4')) || 4;
+    if (bannerTimer) clearInterval(bannerTimer);
+    bannerTimer = setInterval(function () { showBanner(bannerIdx + 1); }, secs * 1000);
+    wrap.addEventListener('mouseenter', function () { if (bannerTimer) { clearInterval(bannerTimer); bannerTimer = null; } });
+    wrap.addEventListener('mouseleave', function () {
+      if (!bannerTimer) bannerTimer = setInterval(function () { showBanner(bannerIdx + 1); }, secs * 1000);
+    });
+    var touchX = null;
+    wrap.addEventListener('touchstart', function (e) { touchX = e.touches[0].clientX; }, { passive: true });
+    wrap.addEventListener('touchend', function (e) {
+      if (touchX === null) return;
+      var dx = e.changedTouches[0].clientX - touchX;
+      if (Math.abs(dx) > 40) showBanner(bannerIdx + (dx < 0 ? 1 : -1));
+      touchX = null;
+    }, { passive: true });
+  }
+
+  // ============ INCOMPLETE ORDER AUTOSAVE ============
+  var autosaveTimer = null;
+  var lastSavedSnapshot = '';
+  function collectFormData() {
+    var g = function (id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    return {
+      customer_name: g('f-name'), phone: g('f-phone'), alt_phone: g('f-alt-phone'),
+      address: g('f-address'), district: g('f-district'), upazila: g('f-upazila'), order_note: g('f-note')
+    };
+  }
+  function saveIncomplete() {
+    if (state.submitting || !state.data) return;
+    var f = collectFormData();
+    if (!f.customer_name && !f.phone) return;
+    var snapshot = JSON.stringify(f) + '|' + selectedPkg;
+    if (snapshot === lastSavedSnapshot) return;
+    lastSavedSnapshot = snapshot;
+    var p = state.data.products[0];
+    var pr = getPricing();
+    var pkg = null;
+    if (p && selectedPkg) pkg = (p.packages || []).find(function (x) { return x.id === Number(selectedPkg); });
+    var payload = {
+      session_id: sessionId,
+      customer_name: f.customer_name, phone: f.phone, alt_phone: f.alt_phone,
+      address: f.address, district: f.district, upazila: f.upazila, order_note: f.order_note,
+      product_id: p ? p.id : null, product_name: p ? p.name : '',
+      package_id: pkg ? pkg.id : null, package_name: pkg ? pkg.name : '', quantity: 1,
+      subtotal: pr.subtotal, delivery_charge: pr.delivery, grand_total: pr.total,
+      source_url: location.href
+    };
+    Object.assign(payload, state.utm);
+    axios.post('/api/public/incomplete', payload).catch(function () {});
+  }
+  function initAutosave() {
+    var form = document.getElementById('order-form');
+    if (!form) return;
+    var handler = function () {
+      if (autosaveTimer) clearTimeout(autosaveTimer);
+      autosaveTimer = setTimeout(saveIncomplete, 1500);
+    };
+    form.addEventListener('input', handler);
+    form.addEventListener('change', handler);
+    window.addEventListener('beforeunload', function () {
+      if (state.submitting) return;
+      try { saveIncomplete(); } catch (e) {}
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden' && !state.submitting) { try { saveIncomplete(); } catch (e) {} }
+    });
   }
 
   function renderProduct(p) {
@@ -460,7 +596,8 @@
       order_note: document.getElementById('f-note').value,
       items: [{ product_id: p.id, package_id: selectedPkg || null, quantity: 1 }],
       otp_verified: otpVerified,
-      source_url: location.href
+      source_url: location.href,
+      session_id: sessionId
     };
     Object.assign(payload, state.utm);
 
@@ -527,7 +664,8 @@
     },
     submitOrder: submitOrder,
     requestOtp: requestOtp,
-    verifyOtp: verifyOtp
+    verifyOtp: verifyOtp,
+    goBanner: function (i, relative) { showBanner(relative ? bannerIdx + i : i); }
   };
 
   // ============ INIT ============

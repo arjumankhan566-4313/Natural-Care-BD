@@ -91,10 +91,12 @@
   var MENU = [
     { id: 'dashboard', icon: 'fa-gauge-high', label: 'ড্যাশবোর্ড' },
     { id: 'orders', icon: 'fa-cart-shopping', label: 'অর্ডারসমূহ' },
+    { id: 'incomplete', icon: 'fa-cart-arrow-down', label: 'ইনকমপ্লিট অর্ডার' },
     { id: 'products', icon: 'fa-box', label: 'প্রোডাক্ট' },
     { id: 'customers', icon: 'fa-users', label: 'কাস্টমার' },
     { id: 'couriers', icon: 'fa-truck', label: 'কুরিয়ার' },
     { id: 'marketing', icon: 'fa-bullhorn', label: 'মার্কেটিং' },
+    { id: 'pixel', icon: 'fa-bullseye', label: 'পিক্সেল সেটাপ' },
     { id: 'finance', icon: 'fa-coins', label: 'ফাইন্যান্স' },
     { id: 'analytics', icon: 'fa-chart-line', label: 'অ্যানালিটিক্স' },
     { id: 'content', icon: 'fa-pen-to-square', label: 'কনটেন্ট' },
@@ -163,7 +165,8 @@
     var views = {
       dashboard: viewDashboard, orders: S.param ? viewOrderDetail : viewOrders, products: viewProducts,
       customers: S.param ? viewCustomerDetail : viewCustomers, couriers: viewCouriers, marketing: viewMarketing,
-      finance: viewFinance, analytics: viewAnalytics, content: viewContent, settings: viewSettings, users: viewUsers
+      finance: viewFinance, analytics: viewAnalytics, content: viewContent, settings: viewSettings, users: viewUsers,
+      incomplete: viewIncomplete, pixel: viewPixel
     };
     (views[S.route] || viewDashboard)();
   }
@@ -208,7 +211,8 @@
 
   // placeholder view functions defined in part 2
   var viewDashboard, viewOrders, viewOrderDetail, viewProducts, viewCustomers, viewCustomerDetail,
-      viewCouriers, viewMarketing, viewFinance, viewAnalytics, viewContent, viewSettings, viewUsers;
+      viewCouriers, viewMarketing, viewFinance, viewAnalytics, viewContent, viewSettings, viewUsers,
+      viewIncomplete, viewPixel;
 
   // ---------- global API ----------
   window.A = {
@@ -246,6 +250,7 @@
       viewProducts = views.products; viewCustomers = views.customers; viewCustomerDetail = views.customerDetail;
       viewCouriers = views.couriers; viewMarketing = views.marketing; viewFinance = views.finance;
       viewAnalytics = views.analytics; viewContent = views.content; viewSettings = views.settings; viewUsers = views.users;
+      viewIncomplete = views.incomplete; viewPixel = views.pixel;
       if (S.user) navigate();
     }
   };

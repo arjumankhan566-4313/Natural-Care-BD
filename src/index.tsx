@@ -9,6 +9,7 @@ import adminCatalog from './routes/admin-catalog'
 import adminCustomers from './routes/admin-customers'
 import adminFinance from './routes/admin-finance'
 import adminSystem from './routes/admin-system'
+import adminIncomplete from './routes/admin-incomplete'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -37,6 +38,7 @@ app.route('/api/admin', adminCatalog)     // /products, /couriers, /content
 app.route('/api/admin/customers', adminCustomers)
 app.route('/api/admin', adminFinance)     // /ad-spends, /expenses, /analytics
 app.route('/api/admin', adminSystem)      // /settings, /users, /audit-logs, /notifications, /export, /poll
+app.route('/api/admin', adminIncomplete)  // /incomplete-orders, /pixel, /banners
 
 // ============ LANDING PAGE ============
 app.get('/', async (c) => {

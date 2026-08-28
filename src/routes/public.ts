@@ -13,13 +13,14 @@ const pub = new Hono<{ Bindings: Bindings }>()
 // ---- Landing page content (everything the page needs) ----
 pub.get('/content', async (c) => {
   const db = c.env.DB
-  const [settings, products, benefits, reviews, faqs, sections] = await Promise.all([
+  const [settings, products, benefits, reviews, faqs, sections, banners] = await Promise.all([
     getSettings(db),
     db.prepare(`SELECT id, name, subtitle, slug, description, features, benefits, ingredients, usage_instructions, package_details, main_image, gallery_images, video_url, regular_price, sale_price, stock, stock_status, is_featured FROM products WHERE is_active = 1 AND is_deleted = 0 ORDER BY sort_order, id`).all(),
     db.prepare('SELECT icon, title, description, image FROM benefits WHERE is_visible = 1 ORDER BY sort_order').all(),
     db.prepare('SELECT customer_name, customer_image, review_text, rating, is_featured FROM reviews WHERE is_published = 1 ORDER BY is_featured DESC, sort_order').all(),
     db.prepare('SELECT question, answer FROM faqs WHERE is_visible = 1 ORDER BY sort_order').all(),
-    db.prepare('SELECT section_type, title, content, sort_order FROM page_sections WHERE is_visible = 1 ORDER BY sort_order').all()
+    db.prepare('SELECT section_type, title, content, sort_order FROM page_sections WHERE is_visible = 1 ORDER BY sort_order').all(),
+    db.prepare('SELECT id, image_url, title, subtitle, link_url FROM hero_banners WHERE is_active = 1 ORDER BY sort_order, id').all().catch(() => ({ results: [] }))
   ])
 
   // Packages per product
@@ -31,7 +32,7 @@ pub.get('/content', async (c) => {
     'hero_headline', 'hero_subheadline', 'offer_title', 'offer_description',
     'countdown_enabled', 'countdown_end', 'countdown_fallback_text',
     'delivery_charge_dhaka', 'delivery_charge_outside', 'free_delivery_enabled', 'free_delivery_min',
-    'otp_enabled', 'meta_pixel_id', 'meta_pixel_enabled', 'meta_events_enabled', 'ga_id', 'gtm_id', 'tiktok_pixel_id',
+    'otp_enabled', 'meta_pixel_id', 'meta_pixel_enabled', 'meta_events_enabled', 'ga_id', 'gtm_id', 'tiktok_pixel_id', 'banner_autoplay_seconds',
     'seo_title', 'seo_description', 'seo_keywords', 'og_image', 'canonical_url', 'robots', 'fb_share_title', 'fb_share_description']
   for (const k of allowedKeys) if (settings[k] !== undefined) publicSettings[k] = settings[k]
 
@@ -47,8 +48,62 @@ pub.get('/content', async (c) => {
     benefits: benefits.results || [],
     reviews: reviews.results || [],
     faqs: faqs.results || [],
-    sections: (sections.results || []).map((s: any) => ({ ...s, content: JSON.parse(s.content || '{}') }))
+    sections: (sections.results || []).map((s: any) => ({ ...s, content: JSON.parse(s.content || '{}') })),
+    banners: (banners as any).results || []
   })
+})
+
+// ---- Incomplete order autosave (partial checkout capture) ----
+// The landing page calls this (debounced) whenever the customer types in the order form.
+// Upsert by session_id so repeated autosaves update the same row — no order lead is ever missed.
+pub.post('/incomplete', rateLimit(60, 60_000), async (c) => {
+  const db = c.env.DB
+  let body: any
+  try { body = await c.req.json() } catch { return c.json({ error: 'invalid_json' }, 400) }
+
+  const sessionId = String(body.session_id || '').slice(0, 64)
+  if (!sessionId || sessionId.length < 8) return c.json({ error: 'invalid_session' }, 400)
+
+  const name = (body.customer_name || '').trim().slice(0, 100)
+  const phone = (body.phone || '').trim().slice(0, 20)
+  const altPhone = (body.alt_phone || '').trim().slice(0, 20)
+  const address = (body.address || '').trim().slice(0, 500)
+  const district = (body.district || '').trim().slice(0, 100)
+  const upazila = (body.upazila || '').trim().slice(0, 100)
+  const note = (body.order_note || '').trim().slice(0, 500)
+
+  // Must have at least SOME useful data (name or phone) before saving
+  if (!name && !phone) return c.json({ success: true, skipped: true })
+
+  const fieldCount = [name, phone, altPhone, address, district, upazila, note].filter(Boolean).length
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown'
+  const ua = (c.req.header('user-agent') || '').slice(0, 300)
+
+  await db.prepare(`
+    INSERT INTO incomplete_orders (session_id, customer_name, phone, alt_phone, address, district, upazila, order_note,
+      product_id, product_name, package_id, package_name, quantity, subtotal, delivery_charge, grand_total,
+      utm_source, utm_medium, utm_campaign, utm_term, utm_content, fbclid, campaign_id, adset_id, ad_id,
+      ip_address, user_agent, source_url, field_count, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(session_id) DO UPDATE SET
+      customer_name = excluded.customer_name, phone = excluded.phone, alt_phone = excluded.alt_phone,
+      address = excluded.address, district = excluded.district, upazila = excluded.upazila, order_note = excluded.order_note,
+      product_id = excluded.product_id, product_name = excluded.product_name,
+      package_id = excluded.package_id, package_name = excluded.package_name, quantity = excluded.quantity,
+      subtotal = excluded.subtotal, delivery_charge = excluded.delivery_charge, grand_total = excluded.grand_total,
+      field_count = excluded.field_count, updated_at = datetime('now')
+    `).bind(
+    sessionId, name, phone, altPhone, address, district, upazila, note,
+    Number(body.product_id) || null, (body.product_name || '').slice(0, 200),
+    Number(body.package_id) || null, (body.package_name || '').slice(0, 200), Number(body.quantity) || 1,
+    Number(body.subtotal) || 0, Number(body.delivery_charge) || 0, Number(body.grand_total) || 0,
+    (body.utm_source || '').slice(0, 200), (body.utm_medium || '').slice(0, 200), (body.utm_campaign || '').slice(0, 200),
+    (body.utm_term || '').slice(0, 200), (body.utm_content || '').slice(0, 200), (body.fbclid || '').slice(0, 300),
+    (body.campaign_id || '').slice(0, 100), (body.adset_id || '').slice(0, 100), (body.ad_id || '').slice(0, 100),
+    ip, ua, (body.source_url || '').slice(0, 500), fieldCount
+  ).run()
+
+  return c.json({ success: true })
 })
 
 // ---- OTP request ----
@@ -218,6 +273,12 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
     `INSERT OR IGNORE INTO tracking_events (event_id, event_name, event_data, source_url, ip_address, user_agent, fbclid)
      VALUES (?, 'Purchase', ?, ?, ?, ?, ?)`
   ).bind(eventId, JSON.stringify({ order_number: orderNumber, value: grandTotal, currency: 'BDT' }), body.source_url || '', ip, ua, body.fbclid || '').run()
+
+  // Mark matching incomplete order as converted (order was completed)
+  if (body.session_id) {
+    await db.prepare(`UPDATE incomplete_orders SET status = 'converted', order_id = ?, updated_at = datetime('now') WHERE session_id = ? AND status != 'converted'`)
+      .bind(orderId, String(body.session_id).slice(0, 64)).run().catch(() => {})
+  }
 
   return c.json({
     success: true,
