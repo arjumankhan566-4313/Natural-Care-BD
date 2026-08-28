@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
 import { auditLog } from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
+import { isSteadfast, courierApiReady, steadfastGetBalance } from '../lib/steadfast'
 
 type Env = { Bindings: Bindings; Variables: { user: AdminUser } }
 const r = new Hono<Env>()
@@ -166,6 +167,17 @@ couriers.put('/:id', async (c) => {
 couriers.delete('/:id', async (c) => {
   await c.env.DB.prepare('UPDATE couriers SET is_deleted = 1, is_active = 0 WHERE id = ?').bind(Number(c.req.param('id'))).run()
   return c.json({ success: true })
+})
+
+// Test courier API connection (Steadfast: get_balance)
+couriers.post('/:id/test', async (c) => {
+  const courier = await c.env.DB.prepare('SELECT * FROM couriers WHERE id = ? AND is_deleted = 0').bind(Number(c.req.param('id'))).first<any>()
+  if (!courier) return c.json({ error: 'not_found', message: 'কুরিয়ার পাওয়া যায়নি' }, 404)
+  if (!isSteadfast(courier)) return c.json({ error: 'unsupported', message: 'এই কুরিয়ারের API টেস্ট এখনো সাপোর্টেড নয় (শুধু Steadfast)' }, 400)
+  if (!courierApiReady(courier)) return c.json({ error: 'not_configured', message: 'API Key ও Secret Key দিয়ে আগে সেভ করুন' }, 400)
+  const res = await steadfastGetBalance(courier)
+  if (res.ok) return c.json({ success: true, message: `✅ সংযোগ সফল! Steadfast ব্যালেন্স: ৳${res.balance}` })
+  return c.json({ error: 'test_failed', message: `❌ সংযোগ ব্যর্থ: ${res.message}` }, 400)
 })
 
 r.route('/couriers', couriers)

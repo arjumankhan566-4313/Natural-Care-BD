@@ -139,7 +139,12 @@
           '<div class="inline-block bg-white rounded-2xl shadow-xl border border-emerald-100 p-3 md:p-4 max-w-md mx-auto">' +
             '<img src="' + esc(s.bsti_certificate_image) + '" alt="BSTI সার্টিফিকেট" class="rounded-xl w-full cursor-zoom-in" onclick="NCB.zoomCert(this.src)">' +
             '<div class="text-xs text-gray-400 mt-2"><i class="fas fa-magnifying-glass-plus mr-1"></i>বড় করে দেখতে ছবিতে ট্যাপ করুন</div>' +
-          '</div>' : '') +
+          '</div>' :
+          '<div class="inline-flex flex-col items-center gap-3 bg-white rounded-2xl shadow-lg border border-emerald-100 px-8 py-6 max-w-md mx-auto">' +
+            '<div class="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-lg"><i class="fas fa-award text-white text-3xl"></i></div>' +
+            '<div class="font-bold text-emerald-800">BSTI সার্টিফাইড</div>' +
+            '<div class="flex items-center gap-4 text-emerald-700 text-sm font-semibold"><span><i class="fas fa-check-circle mr-1"></i>মান নিয়ন্ত্রিত</span><span><i class="fas fa-check-circle mr-1"></i>নিরাপদ</span><span><i class="fas fa-check-circle mr-1"></i>অনুমোদিত</span></div>' +
+          '</div>') +
       '</div>' +
     '</section>' : '') +
 

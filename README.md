@@ -7,12 +7,12 @@
 
 ## URLs
 - **Production (Live)**: https://naturalcarebangladesh.shop (কাস্টম ডোমেইন) / https://natural-care-bd.pages.dev
-- **Sandbox (Dev)**: https://3000-io0pg26tejjrjlxl7g7ky-ecea8f22.sandbox.novita.ai
+- **Sandbox (Dev)**: https://3000-iggv5euxmgv8cza8fep2q-dfc00ec5.sandbox.novita.ai
 - **GitHub**: https://github.com/arjumankhan566-4313/Natural-Care-BD
 - **Landing Page**: `/`
 - **Order Tracking**: `/track-order`
 - **Admin Panel**: `/admin` — লগইন: `arjumankhan566@gmail.com` (পাসওয়ার্ড admin panel মালিকের কাছে)
-- **Deployment**: ✅ Cloudflare Pages (project: `natural-care-bd`, D1: `natural-care-bd-production`) — Last deployed: 2026-08-28
+- **Deployment**: ✅ Cloudflare Pages (project: `natural-care-bd`, D1: `natural-care-bd-production`) — Last deployed: 2026-08-28 (Steadfast API + BSTI landing section)
 
 ## Completed Features (সম্পূর্ণ কার্যকর — শুধু UI নয়)
 
@@ -53,7 +53,8 @@
 - ✅ **Orders**: 12-status tabs with counts, search (ID/phone/name/tracking), filters (risk/date), pagination
 - ✅ **Order detail**: full financial breakdown (net sales, all costs, net profit, margin %, ROI %), attribution data, timeline, admin notes, soft delete/restore
 - ✅ Status change with confirmation dialog + stock deduct/restore + return charge auto-add
-- ✅ **Courier transfer**: Courier A → B with tracking ID, charges, note; full transfer history
+- ✅ **Courier transfer**: Courier A → B with tracking ID, charges, weight, note; full transfer history
+- ✅ **Steadfast API Integration** 🆕: অ্যাডমিন প্যানেল থেকে এক ক্লিকে Steadfast-এ অর্ডার পাঠানো (create_order API), অটো ট্র্যাকিং কোড + consignment ID, API connection test বাটন, ডুপ্লিকেট প্রোটেকশন, প্রোডাক্ট ওজন ফিল্ড, প্রতিটি ঘরে বাংলা হেল্প টেক্সট
 - ✅ **Products**: CRUD + packages CRUD + inventory (stock/low/out) + gallery + video
 - ✅ **Customers**: aggregate stats, order history by phone, repeat/blacklist/whitelist tabs
 - ✅ **Couriers**: unlimited couriers, API credential config screens (Steadfast/Pathao/RedX presets), tracking URL templates, performance stats

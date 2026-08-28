@@ -166,7 +166,7 @@
       var transfers = d.transfers.length ? d.transfers.map(function (t) {
         return '<div class="bg-gray-50 rounded-xl p-3 mb-2 text-sm">' +
           '<div class="font-semibold">' + (t.from_courier_name ? esc(t.from_courier_name) + ' <i class="fas fa-arrow-right text-gray-400 mx-1"></i> ' : '<i class="fas fa-plus-circle text-emerald-500 mr-1"></i>') + esc(t.to_courier_name) + '</div>' +
-          '<div class="text-xs text-gray-500 mt-1">' + (t.tracking_id ? 'ট্র্যাকিং: ' + esc(t.tracking_id) + ' | ' : '') + 'চার্জ: ' + money(t.courier_charge) + (t.note ? ' | ' + esc(t.note) : '') + '</div>' +
+          '<div class="text-xs text-gray-500 mt-1">' + (t.tracking_id ? 'ট্র্যাকিং: ' + esc(t.tracking_id) + ' | ' : '') + 'চার্জ: ' + money(t.courier_charge) + (t.weight ? ' | ওজন: ' + t.weight + 'কেজি' : '') + (t.consignment_id ? ' | <span class="text-emerald-600 font-semibold">API ✅ ' + esc(t.consignment_id) + '</span>' : '') + (t.note ? ' | ' + esc(t.note) : '') + '</div>' +
           '<div class="text-[10px] text-gray-400">' + fmtDT(t.created_at) + ' — ' + esc(t.transferred_by) + '</div></div>';
       }).join('') : '<div class="text-sm text-gray-400 text-center py-3">কোনো কুরিয়ার ট্রান্সফার হয়নি</div>';
 
@@ -229,6 +229,7 @@
               '<div class="text-sm space-y-1.5">' +
                 '<div><span class="text-gray-500">কুরিয়ার:</span> <span class="font-semibold">' + esc(o.courier_name || 'নির্ধারিত হয়নি') + '</span></div>' +
                 '<div><span class="text-gray-500">ট্র্যাকিং:</span> <span class="font-semibold">' + esc(o.tracking_id || '—') + '</span></div>' +
+                (o.consignment_id ? '<div><span class="text-gray-500">কনসাইনমেন্ট:</span> <span class="font-semibold text-emerald-700">' + esc(o.consignment_id) + '</span> <span class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold">API</span></div>' : '') +
                 (o.tracking_url ? '<a href="' + esc(o.tracking_url) + '" target="_blank" class="block text-center bg-blue-50 text-blue-700 rounded-lg py-2 font-semibold text-xs mt-2"><i class="fas fa-arrow-up-right-from-square mr-1"></i>ট্র্যাক করুন</a>' : '') +
               '</div>' +
               '<h4 class="font-semibold text-sm mt-4 mb-2 text-gray-600">ট্রান্সফার হিস্ট্রি</h4>' + transfers +
@@ -273,27 +274,71 @@
 
     transferModal: function (id) {
       var couriers = S._couriers || [];
+      var fh = function (label, inner, hint) {
+        return '<div class="mb-3"><label class="block text-sm font-semibold text-gray-700 mb-1">' + label + '</label>' + inner +
+          (hint ? '<p class="text-[11px] text-gray-400 mt-1 leading-snug"><i class="fas fa-circle-info mr-1"></i>' + hint + '</p>' : '') + '</div>';
+      };
       modal('<i class="fas fa-truck-arrow-right text-blue-600 mr-2"></i>কুরিয়ার ট্রান্সফার / অ্যাসাইন',
-        field('কুরিয়ার নির্বাচন', '<select id="tf-courier" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white">' +
-          couriers.map(function (c) { return '<option value="' + c.id + '">' + esc(c.name) + ' (চার্জ: ' + money(c.delivery_charge) + ')' + (c.has_api ? (c.api_configured ? ' 🔌 API' : ' ⚠️ API key দেওয়া হয়নি') : ' — ম্যানুয়াল') + '</option>'; }).join('') + '</select>') +
-        field('ট্র্যাকিং / কনসাইনমেন্ট আইডি', inp('tf-tracking', '', 'যেমন: 12345678')) +
-        '<div class="grid grid-cols-2 gap-3">' +
-          field('ডেলিভারি চার্জ (কাস্টমার)', inp('tf-delivery', '', 'খালি রাখলে অপরিবর্তিত', 'number')) +
-          field('কুরিয়ার খরচ (ব্যবসার)', inp('tf-charge', '', 'খালি রাখলে ডিফল্ট', 'number')) +
+        fh('কুরিয়ার নির্বাচন', '<select id="tf-courier" onchange="AV.tfCourierChanged()" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white">' +
+          couriers.map(function (c) { return '<option value="' + c.id + '" data-api="' + (c.has_api && c.api_configured ? 1 : 0) + '">' + esc(c.name) + ' (চার্জ: ' + money(c.delivery_charge) + ')' + (c.has_api ? (c.api_configured ? ' 🔌 API' : ' ⚠️ API key দেওয়া হয়নি') : ' — ম্যানুয়াল') + '</option>'; }).join('') + '</select>',
+          'যে কুরিয়ারে অর্ডার পাঠাবেন সেটি বাছাই করুন — 🔌 API থাকলে অটো পাঠানো যাবে') +
+        '<div id="tf-api-box" class="hidden mb-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3">' +
+          '<label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="tf-sendapi" class="w-4 h-4 accent-emerald-600" checked onchange="AV.tfApiToggled()">' +
+          '<span class="text-sm font-semibold text-emerald-800"><i class="fas fa-bolt mr-1"></i>Steadfast-এ অটো অর্ডার পাঠান (API)</span></label>' +
+          '<p class="text-[11px] text-emerald-700 mt-1 ml-6">টিক থাকলে অর্ডারটি সরাসরি Steadfast প্যানেলে চলে যাবে এবং ট্র্যাকিং আইডি অটো চলে আসবে — নিচের ট্র্যাকিং ঘর খালি রাখুন</p>' +
         '</div>' +
-        field('ট্রান্সফার নোট', inp('tf-note', '', 'ঐচ্ছিক')),
+        fh('ট্র্যাকিং / কনসাইনমেন্ট আইডি', inp('tf-tracking', '', 'যেমন: 15BAEB8A'), 'API দিয়ে পাঠালে খালি রাখুন (অটো আসবে)। ম্যানুয়ালি পাঠালে কুরিয়ার প্যানেল থেকে পাওয়া আইডি এখানে লিখুন') +
+        '<div class="grid grid-cols-2 gap-3">' +
+          fh('প্রোডাক্টের ওজন (কেজি)', '<select id="tf-weight" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white">' +
+            ['0.5', '1', '1.5', '2', '3', '4', '5', '7', '10'].map(function (w) { return '<option value="' + w + '"' + (w === '0.5' ? ' selected' : '') + '>' + w + ' কেজি</option>'; }).join('') + '</select>',
+            'প্যাকেজসহ মোট ওজন — বেশি ওজনে কুরিয়ার চার্জ বাড়তে পারে') +
+          fh('ডেলিভারি চার্জ (কাস্টমার)', inp('tf-delivery', '', 'খালি = অপরিবর্তিত', 'number'), 'কাস্টমারের কাছ থেকে নেওয়া ডেলিভারি চার্জ পাল্টাতে চাইলে লিখুন') +
+        '</div>' +
+        '<div class="grid grid-cols-2 gap-3">' +
+          fh('কুরিয়ার খরচ (ব্যবসার)', inp('tf-charge', '', 'খালি = ডিফল্ট চার্জ', 'number'), 'আপনার ব্যবসা থেকে কুরিয়ারকে দেওয়া খরচ — প্রফিট হিসাবে যাবে') +
+          fh('ট্রান্সফার নোট', inp('tf-note', '', 'যেমন: ফ্রাজিল পণ্য'), 'ঐচ্ছিক — কুরিয়ারের জন্য বিশেষ নির্দেশনা (যেমন: সাবধানে বহন করুন)') +
+        '</div>',
         '<button onclick="A.closeModal()" class="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">বাতিল</button>' +
-        '<button onclick="AV.doTransfer(' + id + ')" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold">ট্রান্সফার করুন</button>');
+        '<button id="tf-submit" onclick="AV.doTransfer(' + id + ')" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold">ট্রান্সফার করুন</button>');
+      AV.tfCourierChanged();
+    },
+    tfCourierChanged: function () {
+      var sel = document.getElementById('tf-courier');
+      if (!sel) return;
+      var opt = sel.options[sel.selectedIndex];
+      var hasApi = opt && opt.getAttribute('data-api') === '1';
+      var box = document.getElementById('tf-api-box');
+      if (box) box.classList.toggle('hidden', !hasApi);
+      AV.tfApiToggled();
+    },
+    tfApiToggled: function () {
+      var box = document.getElementById('tf-api-box');
+      var cb = document.getElementById('tf-sendapi');
+      var btn = document.getElementById('tf-submit');
+      var useApi = box && !box.classList.contains('hidden') && cb && cb.checked;
+      if (btn) btn.innerHTML = useApi ? '<i class="fas fa-bolt mr-1"></i>Steadfast-এ পাঠান' : 'ট্রান্সফার করুন';
+      var tr = document.getElementById('tf-tracking');
+      if (tr) tr.placeholder = useApi ? 'অটো আসবে — খালি রাখুন' : 'যেমন: 15BAEB8A';
     },
     doTransfer: function (id) {
+      var box = document.getElementById('tf-api-box');
+      var cb = document.getElementById('tf-sendapi');
+      var useApi = box && !box.classList.contains('hidden') && cb && cb.checked;
+      var btn = document.getElementById('tf-submit');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>পাঠানো হচ্ছে...'; }
       axios.post('/api/admin/orders/' + id + '/transfer', {
         courier_id: Number(v('tf-courier')), tracking_id: v('tf-tracking'),
         delivery_charge: v('tf-delivery') !== '' ? Number(v('tf-delivery')) : null,
         courier_charge: v('tf-charge') !== '' ? Number(v('tf-charge')) : null,
-        note: v('tf-note')
+        note: v('tf-note'), weight: Number(v('tf-weight') || 0.5), send_via_api: !!useApi
       }).then(function (r) {
-        closeModal(); toast(r.data.message); viewOrderDetail();
-      }).catch(apiErr);
+        closeModal();
+        toast(useApi && r.data.tracking_id ? '✅ Steadfast-এ পাঠানো হয়েছে! ট্র্যাকিং: ' + r.data.tracking_id : r.data.message);
+        viewOrderDetail();
+      }).catch(function (e) {
+        if (btn) { btn.disabled = false; AV.tfApiToggled(); }
+        apiErr(e);
+      });
     },
 
     editFinModal: function (id) {

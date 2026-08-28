@@ -183,7 +183,7 @@
       axios.get('/api/admin/poll?since_id=' + S.lastNotifId).then(function (r) {
         if (S.lastNotifId > 0) {
           (r.data.notifications || []).forEach(function (n) {
-            if (n.type === 'new_order') toast(n.title + ' — ' + n.message);
+            if (n.type === 'new_order' || n.type === 'courier_sent' || n.type === 'courier_error') toast(n.title + ' — ' + n.message);
           });
         }
         S.lastNotifId = r.data.max_id || S.lastNotifId;
@@ -205,7 +205,7 @@
     axios.get('/api/admin/notifications').then(function (r) {
       var items = (r.data.notifications || []).map(function (n) {
         return '<div class="flex items-start gap-3 py-3 border-b border-gray-50 ' + (n.is_read ? 'opacity-60' : '') + '">' +
-          '<i class="fas ' + (n.type === 'new_order' ? 'fa-cart-plus text-emerald-500' : 'fa-circle-info text-blue-400') + ' mt-1"></i>' +
+          '<i class="fas ' + (n.type === 'new_order' ? 'fa-cart-plus text-emerald-500' : n.type === 'courier_sent' ? 'fa-truck-fast text-blue-500' : n.type === 'courier_error' ? 'fa-triangle-exclamation text-red-500' : n.type === 'status_change' ? 'fa-arrows-rotate text-amber-500' : 'fa-circle-info text-blue-400') + ' mt-1"></i>' +
           '<div class="flex-1 min-w-0"><div class="text-sm font-semibold">' + esc(n.title) + '</div><div class="text-xs text-gray-500">' + esc(n.message) + '</div><div class="text-[10px] text-gray-400 mt-0.5">' + fmtDT(n.created_at) + '</div></div>' +
           (n.link ? '<a href="' + esc(n.link) + '" onclick="A.closeModal()" class="text-xs text-emerald-600 font-semibold shrink-0">দেখুন</a>' : '') + '</div>';
       }).join('') || '<div class="text-center text-gray-400 py-8">কোনো নোটিফিকেশন নেই</div>';

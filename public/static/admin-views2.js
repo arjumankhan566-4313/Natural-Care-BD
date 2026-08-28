@@ -220,22 +220,27 @@
       S._courierList = r.data.couriers;
     }).catch(apiErr);
   }
+  function fieldHint(label, inner, hint) {
+    return '<div class="mb-4"><label class="block text-sm font-semibold text-gray-700 mb-1">' + label + '</label>' + inner +
+      (hint ? '<p class="text-[11px] text-gray-400 mt-1 leading-snug"><i class="fas fa-circle-info mr-1"></i>' + hint + '</p>' : '') + '</div>';
+  }
   AV.editCourier = function (id) {
     var co = (S._courierList || []).find(function (x) { return x.id === id; }) || {};
+    var isSF = /steadfast|packzy|স্টেডফাস্ট/i.test((co.name || '') + ' ' + (co.base_url || ''));
     modal(id ? 'কুরিয়ার এডিট' : 'নতুন কুরিয়ার',
-      field('নাম *', inp('co-name', co.name)) +
+      fieldHint('নাম *', inp('co-name', co.name, 'যেমন: Steadfast Courier'), 'কুরিয়ারের নাম — Steadfast লিখলে অটো API ইন্টিগ্রেশন কাজ করবে') +
       '<div class="grid grid-cols-3 gap-3">' +
-        field('ডেলিভারি চার্জ', inp('co-delivery', co.delivery_charge != null ? co.delivery_charge : 0, '', 'number')) +
-        field('রিটার্ন চার্জ', inp('co-return', co.return_charge != null ? co.return_charge : 0, '', 'number')) +
-        field('COD চার্জ %', inp('co-cod', co.cod_charge_percent != null ? co.cod_charge_percent : 0, '', 'number')) +
+        fieldHint('ডেলিভারি চার্জ', inp('co-delivery', co.delivery_charge != null ? co.delivery_charge : 0, '', 'number'), 'প্রতি অর্ডারে কুরিয়ারকে দেওয়া চার্জ (৳)') +
+        fieldHint('রিটার্ন চার্জ', inp('co-return', co.return_charge != null ? co.return_charge : 0, '', 'number'), 'পার্সেল ফেরত এলে খরচ (৳)') +
+        fieldHint('COD চার্জ %', inp('co-cod', co.cod_charge_percent != null ? co.cod_charge_percent : 0, '', 'number'), 'ক্যাশ কালেকশন ফি (সাধারণত ১%)') +
       '</div>' +
-      field('ট্র্যাকিং URL টেমপ্লেট', inp('co-track', co.tracking_url_template, 'https://courier.com/track/{tracking_id}')) +
+      fieldHint('ট্র্যাকিং URL টেমপ্লেট', inp('co-track', co.tracking_url_template, 'https://steadfast.com.bd/t/{tracking_id}'), '{tracking_id} এর জায়গায় ট্র্যাকিং আইডি বসবে — Steadfast: https://steadfast.com.bd/t/{tracking_id}') +
       '<div class="mb-4">' + checkbox('co-hasapi', !!co.has_api, 'API ইন্টিগ্রেশন আছে') + '</div>' +
-      '<div class="bg-blue-50 rounded-xl p-4 mb-3"><div class="text-xs font-bold text-blue-800 mb-3"><i class="fas fa-circle-info mr-1"></i>API Credentials (কুরিয়ারের মার্চেন্ট প্যানেল থেকে সংগ্রহ করুন)</div>' +
-        field('API Key', inp('co-apikey', co.api_configured ? '••••••••' : '', 'API key')) +
-        field('Secret Key', inp('co-secret', co.api_configured ? '••••••••' : '', 'Secret key')) +
-        field('Merchant ID', inp('co-merchant', co.merchant_id)) +
-        field('API Base URL', inp('co-baseurl', co.base_url, 'https://api.courier.com')) +
+      '<div class="bg-blue-50 rounded-xl p-4 mb-3"><div class="text-xs font-bold text-blue-800 mb-3"><i class="fas fa-plug mr-1"></i>API Credentials — Steadfast মার্চেন্ট প্যানেল (steadfast.com.bd) এ লগইন করে <b>API</b> মেনু থেকে সংগ্রহ করুন</div>' +
+        fieldHint('API Key', inp('co-apikey', co.api_configured ? '••••••••' : '', 'যেমন: b1g2xxxxxxxxxxxxxxxx'), 'Steadfast প্যানেল ▸ API ▸ API Key — হুবহু কপি-পেস্ট করুন (আগে-পরে স্পেস যেন না থাকে)') +
+        fieldHint('Secret Key', inp('co-secret', co.api_configured ? '••••••••' : '', 'যেমন: n9s8xxxxxxxxxxxxxxxx'), 'Steadfast প্যানেল ▸ API ▸ Secret Key — এটি গোপন রাখুন, কাউকে দেবেন না') +
+        fieldHint('API Base URL', inp('co-baseurl', co.base_url || (isSF || !id ? 'https://portal.packzy.com/api/v1' : ''), 'https://portal.packzy.com/api/v1'), 'Steadfast-এর জন্য ডিফল্ট: https://portal.packzy.com/api/v1 — পরিবর্তন না করলেই ভালো') +
+        (id ? '<button type="button" onclick="AV.testCourierApi(' + id + ')" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-lg"><i class="fas fa-plug-circle-check mr-1.5"></i>API কানেকশন টেস্ট করুন</button><p class="text-[11px] text-gray-400 mt-1 text-center">টেস্টের আগে নতুন key দিলে আগে সংরক্ষণ করুন</p>' : '') +
       '</div>' + checkbox('co-active', co.is_active !== 0, 'Active'),
       '<button onclick="A.closeModal()" class="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">বাতিল</button>' +
       '<button onclick="AV.saveCourier(' + (id || 0) + ')" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold">সংরক্ষণ</button>');
@@ -244,11 +249,17 @@
     var payload = {
       name: v('co-name'), delivery_charge: Number(v('co-delivery') || 0), return_charge: Number(v('co-return') || 0),
       cod_charge_percent: Number(v('co-cod') || 0), tracking_url_template: v('co-track'),
-      has_api: chk('co-hasapi'), api_key: v('co-apikey'), secret_key: v('co-secret'),
-      merchant_id: v('co-merchant'), base_url: v('co-baseurl'), is_active: chk('co-active')
+      has_api: chk('co-hasapi'), api_key: (v('co-apikey') || '').trim(), secret_key: (v('co-secret') || '').trim(),
+      base_url: (v('co-baseurl') || '').trim(), is_active: chk('co-active')
     };
     var req = id ? axios.put('/api/admin/couriers/' + id, payload) : axios.post('/api/admin/couriers', payload);
     req.then(function () { closeModal(); toast('কুরিয়ার সংরক্ষিত'); viewCouriers(); }).catch(apiErr);
+  };
+  AV.testCourierApi = function (id) {
+    toast('API টেস্ট হচ্ছে...');
+    axios.post('/api/admin/couriers/' + id + '/test').then(function (r) {
+      toast(r.data.message);
+    }).catch(apiErr);
   };
   AV.deleteCourier = function (id) {
     confirmDlg('কুরিয়ারটি ডিলিট করবেন?', function () {

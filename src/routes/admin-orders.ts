@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
 import { auditLog, notify, recalcOrderProfit, refreshCustomerStats, ORDER_STATUSES } from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
+import { isSteadfast, courierApiReady, steadfastCreateOrder } from '../lib/steadfast'
 
 type Env = { Bindings: Bindings; Variables: { user: AdminUser } }
 const r = new Hono<Env>()
@@ -183,12 +184,12 @@ r.put('/:id', async (c) => {
   return c.json({ success: true, order: updated })
 })
 
-// Assign / transfer courier
+// Assign / transfer courier (with optional Steadfast API push)
 r.post('/:id/transfer', async (c) => {
   const db = c.env.DB
   const user = c.get('user')
   const id = Number(c.req.param('id'))
-  const { courier_id, tracking_id, delivery_charge, courier_charge, note } = await c.req.json()
+  const { courier_id, tracking_id, delivery_charge, courier_charge, note, weight, send_via_api } = await c.req.json()
 
   const order = await db.prepare('SELECT * FROM orders WHERE id = ? AND is_deleted = 0').bind(id).first<any>()
   if (!order) return c.json({ error: 'not_found' }, 404)
@@ -199,28 +200,65 @@ r.post('/:id/transfer', async (c) => {
     ? await db.prepare('SELECT id, name FROM couriers WHERE id = ?').bind(order.courier_id).first<any>()
     : null
 
+  // ---- Steadfast API push: create consignment automatically ----
+  let finalTrackingId = tracking_id || ''
+  let consignmentId = ''
+  let apiNote = ''
+  if (send_via_api) {
+    if (!isSteadfast(newCourier)) {
+      return c.json({ error: 'api_unsupported', message: 'এই কুরিয়ারে API ইন্টিগ্রেশন নেই — ম্যানুয়ালি ট্র্যাকিং আইডি দিন' }, 400)
+    }
+    if (!courierApiReady(newCourier)) {
+      return c.json({ error: 'api_not_configured', message: 'Steadfast API Key/Secret Key দেওয়া হয়নি — কুরিয়ার সেকশন থেকে কনফিগার করুন' }, 400)
+    }
+    // Avoid duplicate consignments for the same order
+    if (order.consignment_id) {
+      return c.json({ error: 'already_sent', message: `এই অর্ডার আগেই Steadfast-এ পাঠানো হয়েছে (Consignment: ${order.consignment_id})। ডুপ্লিকেট এড়াতে আর পাঠানো হলো না।` }, 400)
+    }
+    const fullAddress = [order.address, order.upazila, order.district].filter(Boolean).join(', ')
+    const codDue = Math.max(0, Number(order.grand_total || 0) - Number(order.paid_amount || 0))
+    const wNote = weight ? `Weight: ${weight}kg. ` : ''
+    const sfRes = await steadfastCreateOrder(newCourier, {
+      invoice: order.order_number,
+      recipient_name: order.customer_name,
+      recipient_phone: order.phone,
+      recipient_address: fullAddress,
+      cod_amount: codDue,
+      note: (wNote + (note || '')).trim()
+    })
+    if (!sfRes.ok) {
+      await notify(db, 'courier_error', '⚠️ Steadfast-এ অর্ডার পাঠানো ব্যর্থ', `${order.order_number}: ${sfRes.message}`, `/admin#/orders/${id}`)
+      return c.json({ error: 'steadfast_failed', message: sfRes.message }, 502)
+    }
+    finalTrackingId = sfRes.tracking_code || ''
+    consignmentId = sfRes.consignment_id || ''
+    apiNote = ` | Steadfast API ✅ Consignment: ${consignmentId}`
+  }
+
   // Build tracking URL from template
   let trackingUrl = ''
-  if (tracking_id && newCourier.tracking_url_template) {
-    trackingUrl = newCourier.tracking_url_template.replace('{tracking_id}', encodeURIComponent(tracking_id))
+  if (finalTrackingId && newCourier.tracking_url_template) {
+    trackingUrl = newCourier.tracking_url_template.replace('{tracking_id}', encodeURIComponent(finalTrackingId))
   }
 
   await db.prepare(`
-    INSERT INTO courier_transfers (order_id, from_courier_id, from_courier_name, to_courier_id, to_courier_name, tracking_id, delivery_charge, courier_charge, note, transferred_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO courier_transfers (order_id, from_courier_id, from_courier_name, to_courier_id, to_courier_name, tracking_id, delivery_charge, courier_charge, note, transferred_by, weight, consignment_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(id, oldCourier?.id || null, oldCourier?.name || null, newCourier.id, newCourier.name,
-    tracking_id || '', Number(delivery_charge || 0), Number(courier_charge || newCourier.delivery_charge || 0), note || '', user.username).run()
+    finalTrackingId, Number(delivery_charge || 0), Number(courier_charge || newCourier.delivery_charge || 0), note || '', user.username,
+    Number(weight || 0), consignmentId).run()
 
   await db.prepare(`
-    UPDATE orders SET courier_id = ?, tracking_id = ?, tracking_url = ?,
+    UPDATE orders SET courier_id = ?, tracking_id = ?, tracking_url = ?, consignment_id = CASE WHEN ? != '' THEN ? ELSE consignment_id END,
       courier_cost = ?, delivery_charge = COALESCE(?, delivery_charge), updated_at = CURRENT_TIMESTAMP WHERE id = ?
-  `).bind(newCourier.id, tracking_id || '', trackingUrl,
+  `).bind(newCourier.id, finalTrackingId, trackingUrl, consignmentId, consignmentId,
     Number(courier_charge || newCourier.delivery_charge || 0),
     delivery_charge !== undefined && delivery_charge !== null && delivery_charge !== '' ? Number(delivery_charge) : null, id).run()
 
-  const historyNote = oldCourier
-    ? `Order transferred from ${oldCourier.name} to ${newCourier.name}${tracking_id ? ' | Tracking: ' + tracking_id : ''}`
-    : `Courier assigned: ${newCourier.name}${tracking_id ? ' | Tracking: ' + tracking_id : ''}`
+  const historyNote = (oldCourier
+    ? `Order transferred from ${oldCourier.name} to ${newCourier.name}${finalTrackingId ? ' | Tracking: ' + finalTrackingId : ''}`
+    : `Courier assigned: ${newCourier.name}${finalTrackingId ? ' | Tracking: ' + finalTrackingId : ''}`)
+    + (weight ? ` | ওজন: ${weight}kg` : '') + apiNote
   await db.prepare('INSERT INTO order_status_history (order_id, from_status, to_status, note, changed_by) VALUES (?, ?, ?, ?, ?)')
     .bind(id, order.status, order.status, historyNote, user.username).run()
 
@@ -229,8 +267,11 @@ r.post('/:id/transfer', async (c) => {
   await db.prepare('UPDATE orders SET grand_total = ? WHERE id = ?').bind(refreshed.subtotal - refreshed.discount + refreshed.delivery_charge, id).run()
   await recalcOrderProfit(db, id)
   await auditLog(db, user.id, user.username, 'courier_transfer', 'order', order.order_number, historyNote)
+  if (consignmentId) {
+    await notify(db, 'courier_sent', '🚚 Steadfast-এ অর্ডার পাঠানো হয়েছে', `${order.order_number} — Tracking: ${finalTrackingId} | Consignment: ${consignmentId}`, `/admin#/orders/${id}`)
+  }
 
-  return c.json({ success: true, message: historyNote, tracking_url: trackingUrl })
+  return c.json({ success: true, message: historyNote, tracking_url: trackingUrl, tracking_id: finalTrackingId, consignment_id: consignmentId })
 })
 
 // Soft delete
