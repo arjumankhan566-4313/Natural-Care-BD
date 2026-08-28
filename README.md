@@ -6,7 +6,8 @@
 - **Stack**: Hono + TypeScript + Cloudflare Pages + D1 (SQLite) + TailwindCSS (CDN) + Chart.js
 
 ## URLs
-- **Sandbox (Dev)**: https://3000-i832263oj7xy15gescwq0-3c7ff1b5.sandbox.novita.ai
+- **Sandbox (Dev)**: https://3000-io0pg26tejjrjlxl7g7ky-ecea8f22.sandbox.novita.ai
+- **GitHub**: https://github.com/arjumankhan566-4313/Natural-Care-BD
 - **Landing Page**: `/`
 - **Order Tracking**: `/track-order`
 - **Admin Panel**: `/admin` — ডিফল্ট লগইন: `admin` / `admin123` ⚠️ **প্রোডাকশনে অবশ্যই পাসওয়ার্ড পরিবর্তন করুন**
@@ -17,6 +18,7 @@
 ### Landing Page (Public)
 - ✅ Premium mobile-first Bangla landing page (Hind Siliguri ফন্ট)
 - ✅ Hero: headline, subheadline, offer price, discount %, CTA (smooth scroll), trust badges
+- ✅ **Hero Banner Slider** 🆕: admin-managed multiple banners, auto-slide (configurable seconds), dots + arrows + touch swipe, title/subtitle/link per banner, ব্যানার না থাকলে প্রোডাক্ট ফটো fallback
 - ✅ Sticky mobile bottom CTA ("🚚 Cash on Delivery | এখনই অর্ডার করুন")
 - ✅ Product section: gallery (multi-image), video, features, benefits, ingredients, usage, stock status
 - ✅ Quantity-based packages (১/২/৩ প্যাকেজ) + free delivery flags + badges
@@ -25,6 +27,7 @@
 - ✅ Smart order form: name, phone (BD validation), alt phone, address, জেলা (৬৪), উপজেলা, note
 - ✅ Live subtotal + delivery charge + grand total calculation (server-side verified)
 - ✅ Optional OTP verification section (admin toggle)
+- ✅ **Incomplete Order Capture** 🆕: কাস্টমার ফর্মে নাম/ফোন লিখলেই ডিবাউন্সড অটোসেভ (১.৫স) + পেজ ছাড়ার সময় সেভ — সাবমিট না করলেও অর্ডার লিড হারায় না
 - ✅ Premium order confirmation page with Order ID (#NCB-XXXXX)
 - ✅ Call / WhatsApp / Messenger buttons (admin-configurable)
 
@@ -54,6 +57,9 @@
 - ✅ **Customers**: aggregate stats, order history by phone, repeat/blacklist/whitelist tabs
 - ✅ **Couriers**: unlimited couriers, API credential config screens (Steadfast/Pathao/RedX presets), tracking URL templates, performance stats
 - ✅ **Marketing**: ad spend entry (USD→BDT auto-convert), CPO per campaign, per-order ad cost distribution, source/campaign reports, event counts
+- ✅ **ইনকমপ্লিট অর্ডার** 🆕 (আলাদা সেকশন): স্ট্যাটাস ট্যাব (ইনকমপ্লিট/যোগাযোগ/কনভার্টেড/বাতিল) + কাউন্ট, সার্চ, বিস্তারিত ভিউ (UTM/fbclid সহ), সরাসরি কল বাটন, এক ক্লিকে কনফার্মড অর্ডারে কনভার্ট (order_source: incomplete_recovery), অর্ডার সাবমিট হলে অটো-কনভার্টেড মার্ক
+- ✅ **পিক্সেল সেটাপ** 🆕 (সম্পূর্ণ আলাদা সেকশন): হেলথ চেক (Pixel/CAPI configured+enabled), ৪টি স্ট্যাট কার্ড, Pixel ID/CAPI Token/Test Event Code সেটিংস, **CAPI টেস্ট ইভেন্ট বাটন** (Events Manager-এ লাইভ ভেরিফাই), ইভেন্ট পরিসংখ্যান + সাম্প্রতিক ইভেন্ট লগ, বাংলায় ধাপে-ধাপে সেটাপ গাইড
+- ✅ **হিরো ব্যানার ম্যানেজমেন্ট** 🆕 (কনটেন্ট সেকশনে): ব্যানার CRUD, preview, sort, active toggle
 - ✅ **Finance**: P&L summary, expense management (8 categories, dual currency), USD rate setting
 - ✅ **Analytics**: revenue/profit/ad charts, product profitability, courier performance (success/return rate)
 - ✅ **Content**: benefits/reviews/FAQ/page-section builder (add/edit/hide/reorder/delete)
@@ -66,19 +72,23 @@
 ## Functional API Endpoints
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/public/content` | Landing page data (products, packages, reviews, FAQs, settings) |
-| POST | `/api/public/orders` | Order submission (server-side pricing + risk scoring) |
+| GET | `/api/public/content` | Landing page data (products, packages, reviews, FAQs, settings, **banners**) |
+| POST | `/api/public/orders` | Order submission (server-side pricing + risk scoring, incomplete→converted mark) |
+| POST | `/api/public/incomplete` | 🆕 Incomplete order autosave (upsert by session_id, rate-limited) |
 | POST | `/api/public/track` | Customer order tracking |
 | POST | `/api/public/events` | Pixel event log + CAPI forward (dedup by event_id) |
 | POST | `/api/public/otp/request`, `/otp/verify` | OTP flow |
 | POST | `/api/auth/login`, `/logout`; GET `/me` | Admin auth |
 | CRUD | `/api/admin/orders`, `/products`, `/couriers`, `/customers`, `/content/*`, `/ad-spends`, `/expenses`, `/settings`, `/users` | Admin management |
+| GET/PUT/DELETE | `/api/admin/incomplete-orders`, POST `/:id/convert` | 🆕 Incomplete order list/update/delete/convert-to-order |
+| GET/PUT | `/api/admin/pixel`, POST `/pixel/test-event` | 🆕 Dedicated pixel settings + health + CAPI test event |
+| CRUD | `/api/admin/banners` | 🆕 Hero banner slider management |
 | GET | `/api/admin/analytics/{summary,charts,products,couriers,marketing}` | Reports |
 | GET | `/api/admin/export/{orders,customers,products,expenses,profit-loss,ad-spends}` | CSV export |
 
 ## Data Architecture
-- **Storage**: Cloudflare D1 (SQLite) — 20 tables
-- **Tables**: admin_users, admin_sessions, login_history, products, product_packages, customers, couriers, orders, order_items, order_status_history, courier_transfers, ad_spends, expenses, reviews, faqs, benefits, page_sections, settings, audit_logs, notifications, tracking_events, otp_codes
+- **Storage**: Cloudflare D1 (SQLite) — 24 tables
+- **Tables**: admin_users, admin_sessions, login_history, products, product_packages, customers, couriers, orders, order_items, order_status_history, courier_transfers, ad_spends, expenses, reviews, faqs, benefits, page_sections, settings, audit_logs, notifications, tracking_events, otp_codes, **incomplete_orders** 🆕, **hero_banners** 🆕
 - **Profit formula**: `(subtotal − discount + delivery) − (product + packaging + courier + COD + ad + other cost)` — auto-recalculated on every change
 - **Soft delete**: orders/products/couriers recoverable
 
@@ -115,4 +125,4 @@ npm run build && npx wrangler pages deploy dist --project-name webapp
 
 ## Status
 - **Platform**: Cloudflare Pages (D1) — sandbox-এ সম্পূর্ণ কার্যকর
-- **Last Updated**: 2026-08-28
+- **Last Updated**: 2026-08-28 (incomplete orders + pixel section + hero banner slider যোগ হয়েছে)

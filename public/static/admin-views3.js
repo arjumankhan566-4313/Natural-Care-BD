@@ -201,9 +201,11 @@
       axios.get('/api/admin/content/benefits'),
       axios.get('/api/admin/content/reviews'),
       axios.get('/api/admin/content/faqs'),
-      axios.get('/api/admin/content/sections')
+      axios.get('/api/admin/content/sections'),
+      axios.get('/api/admin/banners').catch(function () { return { data: { banners: [] } }; })
     ]).then(function (rs) {
       var bens = rs[0].data.benefits, revs = rs[1].data.reviews, faqs = rs[2].data.faqs, secs = rs[3].data.sections;
+      S._banners = rs[4].data.banners || [];
       var benRows = bens.map(function (b) {
         return '<div class="flex items-center justify-between bg-gray-50 rounded-xl p-3 mb-2"><div class="flex items-center gap-3"><i class="fas ' + esc(b.icon) + ' text-emerald-600 w-5"></i><div><div class="font-semibold text-sm">' + esc(b.title) + (b.is_visible ? '' : ' <span class="text-xs text-gray-400">(লুকানো)</span>') + '</div><div class="text-xs text-gray-500">' + esc(b.description || '') + '</div></div></div>' +
         '<div class="flex gap-1 shrink-0"><button onclick="AV.editBenefit(' + b.id + ')" class="text-emerald-600 p-1.5"><i class="fas fa-pen"></i></button><button onclick="AV.delContent(\'benefits\',' + b.id + ')" class="text-red-500 p-1.5"><i class="fas fa-trash-can"></i></button></div></div>';
@@ -221,6 +223,7 @@
         '<div class="flex gap-1 shrink-0"><button onclick="AV.editSection(' + sx.id + ')" class="text-emerald-600 p-1.5"><i class="fas fa-pen"></i></button><button onclick="AV.delContent(\'sections\',' + sx.id + ')" class="text-red-500 p-1.5"><i class="fas fa-trash-can"></i></button></div></div>';
       }).join('') || '<div class="text-gray-400 text-sm">কিছু নেই</div>';
       setContent(
+        bannerSectionHtml() +
         sectionCard('<i class="fas fa-star text-emerald-600 mr-2"></i>বেনিফিট', benRows, '<button onclick="AV.editBenefit(0)" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold"><i class="fas fa-plus mr-1"></i>যোগ</button>') +
         sectionCard('<i class="fas fa-comment text-amber-500 mr-2"></i>রিভিউ', revRows, '<button onclick="AV.editReview(0)" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold"><i class="fas fa-plus mr-1"></i>যোগ</button>') +
         sectionCard('<i class="fas fa-circle-question text-blue-500 mr-2"></i>FAQ', faqRows, '<button onclick="AV.editFaq(0)" class="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold"><i class="fas fa-plus mr-1"></i>যোগ</button>') +
@@ -430,11 +433,248 @@
     }
   };
 
+  // ============ INCOMPLETE ORDERS ============
+  var incStatus = '', incQ = '', incPage = 1;
+  var INC_STATUS_BN = { incomplete: 'ইনকমপ্লিট', contacted: 'যোগাযোগ হয়েছে', converted: 'কনভার্টেড', discarded: 'বাতিল' };
+  var INC_STATUS_COLOR = { incomplete: 'bg-amber-100 text-amber-700', contacted: 'bg-blue-100 text-blue-700', converted: 'bg-emerald-100 text-emerald-700', discarded: 'bg-gray-100 text-gray-500' };
+  function viewIncomplete() {
+    axios.get('/api/admin/incomplete-orders?status=' + encodeURIComponent(incStatus) + '&q=' + encodeURIComponent(incQ) + '&page=' + incPage)
+    .then(function (r) {
+      var d = r.data, sc = d.status_counts || {};
+      var totalAll = (sc.incomplete || 0) + (sc.contacted || 0) + (sc.converted || 0) + (sc.discarded || 0);
+      var tabs = [['', 'সব (' + totalAll + ')'], ['incomplete', 'ইনকমপ্লিট (' + (sc.incomplete || 0) + ')'], ['contacted', 'যোগাযোগ হয়েছে (' + (sc.contacted || 0) + ')'], ['converted', 'কনভার্টেড (' + (sc.converted || 0) + ')'], ['discarded', 'বাতিল (' + (sc.discarded || 0) + ')']];
+      var tabHtml = '<div class="flex flex-wrap gap-2 mb-4">' + tabs.map(function (t) {
+        return '<button onclick="AV.incTab(\'' + t[0] + '\')" class="px-3.5 py-1.5 rounded-full text-xs font-bold transition ' + (incStatus === t[0] ? 'bg-amber-500 text-white' : 'bg-white text-gray-600 shadow-sm hover:bg-gray-50') + '">' + t[1] + '</button>';
+      }).join('') + '</div>';
+      var rows = (d.incomplete_orders || []).map(function (o) {
+        var fields = [];
+        if (o.address) fields.push('ঠিকানা');
+        if (o.district) fields.push(o.district);
+        var utm = [o.utm_source, o.utm_campaign].filter(Boolean).join(' / ');
+        return '<tr class="border-b border-gray-50 hover:bg-amber-50/40">' +
+          '<td class="px-3 py-2.5"><div class="font-semibold">' + (esc(o.customer_name) || '<span class="text-gray-400">নাম নেই</span>') + '</div>' +
+            '<div class="text-xs text-gray-500">' + esc(o.phone || '—') + (o.alt_phone ? ' / ' + esc(o.alt_phone) : '') + '</div></td>' +
+          '<td class="px-3 py-2.5"><div class="text-xs">' + esc(o.product_name || '—') + (o.package_name ? '<div class="text-gray-400">' + esc(o.package_name) + '</div>' : '') + '</div></td>' +
+          '<td class="px-3 py-2.5 font-semibold">' + (o.grand_total ? money(o.grand_total) : '—') + '</td>' +
+          '<td class="px-3 py-2.5"><div class="text-xs">' + esc(fields.join(', ') || '—') + '</div>' + (utm ? '<div class="text-[10px] text-purple-500">' + esc(utm) + '</div>' : '') + '</td>' +
+          '<td class="px-3 py-2.5"><div class="flex items-center gap-1"><span class="text-xs font-bold px-2 py-0.5 rounded-full ' + (INC_STATUS_COLOR[o.status] || '') + '">' + (INC_STATUS_BN[o.status] || o.status) + '</span>' +
+            '<span class="text-[10px] bg-gray-100 text-gray-500 px-1.5 rounded-full">' + (o.field_count || 0) + '/৭</span></div>' +
+            (o.order_id ? '<a href="#/orders/' + o.order_id + '" class="text-[10px] text-emerald-600 font-semibold">অর্ডার দেখুন →</a>' : '') + '</td>' +
+          '<td class="px-3 py-2.5 text-xs text-gray-400">' + fmtDT(o.updated_at) + '</td>' +
+          '<td class="px-3 py-2.5"><div class="flex gap-1">' +
+            (o.phone ? '<a href="tel:' + esc(o.phone) + '" class="text-blue-500 p-1.5" title="কল করুন"><i class="fas fa-phone"></i></a>' : '') +
+            '<button onclick="AV.incDetail(' + o.id + ')" class="text-gray-500 p-1.5" title="বিস্তারিত"><i class="fas fa-eye"></i></button>' +
+            (o.status !== 'converted' ? '<button onclick="AV.incConvert(' + o.id + ')" class="text-emerald-600 p-1.5" title="অর্ডারে কনভার্ট"><i class="fas fa-cart-plus"></i></button>' : '') +
+            '<button onclick="AV.incDelete(' + o.id + ')" class="text-red-400 p-1.5" title="ডিলিট"><i class="fas fa-trash-can"></i></button>' +
+          '</div></td></tr>';
+      }).join('');
+      setContent(
+        '<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-5 text-sm text-amber-800"><i class="fas fa-lightbulb mr-1.5"></i><b>ইনকমপ্লিট অর্ডার:</b> কাস্টমার অর্ডার ফর্মে নাম/ফোন লিখলেই এখানে অটো-সেভ হয় — সাবমিট না করলেও। ফোন করে কনফার্ম করে <b>কনভার্ট</b> বাটনে ক্লিক করলেই অর্ডারে রূপান্তরিত হবে। কোনো অর্ডার আর মিস হবে না!</div>' +
+        tabHtml +
+        '<div class="mb-4"><input type="text" value="' + esc(incQ) + '" placeholder="নাম / ফোন / জেলা দিয়ে খুঁজুন..." class="w-full sm:w-80 border border-gray-300 rounded-lg px-4 py-2.5 text-sm" onkeydown="if(event.key===\'Enter\'){AV.incSearch(this.value)}"></div>' +
+        '<div class="bg-white rounded-2xl shadow-sm">' + tbl(['কাস্টমার', 'প্রোডাক্ট', 'টাকা', 'তথ্য', 'স্ট্যাটাস', 'সর্বশেষ', ''], rows) + '</div>' +
+        (d.total > d.limit ? '<div class="flex justify-center gap-2 mt-4">' +
+          (incPage > 1 ? '<button onclick="AV.incPage(' + (incPage - 1) + ')" class="bg-white shadow-sm px-4 py-2 rounded-lg text-sm">← আগের</button>' : '') +
+          '<span class="px-4 py-2 text-sm text-gray-500">পেজ ' + incPage + '</span>' +
+          (incPage * d.limit < d.total ? '<button onclick="AV.incPage(' + (incPage + 1) + ')" class="bg-white shadow-sm px-4 py-2 rounded-lg text-sm">পরের →</button>' : '') + '</div>' : ''),
+        'ইনকমপ্লিট অর্ডার');
+      S._incomplete = d.incomplete_orders || [];
+    }).catch(apiErr);
+  }
+  AV.incTab = function (st) { incStatus = st; incPage = 1; viewIncomplete(); };
+  AV.incSearch = function (q) { incQ = q; incPage = 1; viewIncomplete(); };
+  AV.incPage = function (p) { incPage = p; viewIncomplete(); };
+  AV.incDetail = function (id) {
+    var o = (S._incomplete || []).find(function (x) { return x.id === id; });
+    if (!o) return;
+    var row = function (l, val) { return '<div class="flex justify-between py-1.5 border-b border-gray-50 text-sm"><span class="text-gray-500">' + l + '</span><span class="font-semibold text-right max-w-[60%]">' + (val || '—') + '</span></div>'; };
+    modal('ইনকমপ্লিট অর্ডার #' + o.id,
+      row('নাম', esc(o.customer_name)) + row('ফোন', esc(o.phone)) + row('বিকল্প ফোন', esc(o.alt_phone)) +
+      row('ঠিকানা', esc(o.address)) + row('জেলা', esc(o.district)) + row('উপজেলা', esc(o.upazila)) +
+      row('নোট', esc(o.order_note)) + row('প্রোডাক্ট', esc(o.product_name)) + row('প্যাকেজ', esc(o.package_name)) +
+      row('মোট', o.grand_total ? money(o.grand_total) : '') +
+      row('UTM Source', esc(o.utm_source)) + row('Campaign', esc(o.utm_campaign)) + row('fbclid', o.fbclid ? '✓ আছে' : '') +
+      row('IP', esc(o.ip_address)) + row('সর্বশেষ আপডেট', fmtDT(o.updated_at)) +
+      field('অ্যাডমিন নোট', textarea('inc-note', o.admin_note, 2)) +
+      field('স্ট্যাটাস', '<select id="inc-status" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white">' +
+        ['incomplete', 'contacted', 'discarded'].map(function (st) { return '<option value="' + st + '" ' + (o.status === st ? 'selected' : '') + '>' + INC_STATUS_BN[st] + '</option>'; }).join('') + '</select>'),
+      '<button onclick="A.closeModal()" class="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">বন্ধ</button>' +
+      '<button onclick="AV.incSave(' + id + ')" class="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-semibold">সংরক্ষণ</button>' +
+      (o.status !== 'converted' ? '<button onclick="A.closeModal();AV.incConvert(' + id + ')" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold"><i class="fas fa-cart-plus mr-1"></i>অর্ডারে কনভার্ট</button>' : ''));
+  };
+  AV.incSave = function (id) {
+    axios.put('/api/admin/incomplete-orders/' + id, { status: v('inc-status'), admin_note: v('inc-note') })
+      .then(function () { closeModal(); toast('সংরক্ষিত'); viewIncomplete(); }).catch(apiErr);
+  };
+  AV.incConvert = function (id) {
+    confirmDlg('কাস্টমারের সাথে কথা হয়েছে? এটি একটি কনফার্মড অর্ডারে রূপান্তরিত হবে।', function () {
+      axios.post('/api/admin/incomplete-orders/' + id + '/convert').then(function (r) {
+        toast('✅ অর্ডার তৈরি হয়েছে: ' + r.data.order_number);
+        viewIncomplete();
+      }).catch(apiErr);
+    });
+  };
+  AV.incDelete = function (id) {
+    confirmDlg('এই ইনকমপ্লিট অর্ডারটি স্থায়ীভাবে ডিলিট হবে। নিশ্চিত?', function () {
+      axios.delete('/api/admin/incomplete-orders/' + id).then(function () { viewIncomplete(); }).catch(apiErr);
+    });
+  };
+
+  // ============ PIXEL SETUP (dedicated section) ============
+  function viewPixel() {
+    axios.get('/api/admin/pixel').then(function (r) {
+      var d = r.data, st = d.settings, h = d.health, cs = d.capi_stats;
+      var f = function (key, label, ph, type) { return field(label, inp('px-' + key, st[key], ph, type)); };
+      var healthBadge = function (ok, okText, badText) {
+        return ok ? '<span class="flex items-center gap-1.5 text-emerald-700 text-sm font-bold"><i class="fas fa-circle-check"></i>' + okText + '</span>'
+                  : '<span class="flex items-center gap-1.5 text-red-500 text-sm font-bold"><i class="fas fa-circle-xmark"></i>' + badText + '</span>';
+      };
+      var evRows = (d.event_stats || []).map(function (x) {
+        return '<tr class="border-b border-gray-50"><td class="px-3 py-2.5 font-semibold">' + esc(x.event_name) + '</td>' +
+          '<td class="px-3 py-2.5">' + x.cnt + '</td><td class="px-3 py-2.5">' + (x.capi_sent || 0) + '</td></tr>';
+      }).join('');
+      var logRows = (d.recent_events || []).map(function (e) {
+        var capiState = e.sent_to_capi ? '<span class="text-emerald-600 text-xs font-bold">✓ CAPI</span>' :
+          (e.capi_response ? '<span class="text-red-500 text-xs font-bold" title="' + esc(e.capi_response) + '">✗ ব্যর্থ</span>' : '<span class="text-gray-400 text-xs">—</span>');
+        return '<tr class="border-b border-gray-50"><td class="px-3 py-2 text-xs">' + fmtDT(e.created_at) + '</td>' +
+          '<td class="px-3 py-2 text-xs font-semibold">' + esc(e.event_name) + '</td>' +
+          '<td class="px-3 py-2 text-xs text-gray-400 max-w-[140px] truncate">' + esc(e.event_id) + '</td>' +
+          '<td class="px-3 py-2">' + capiState + '</td>' +
+          '<td class="px-3 py-2 text-xs">' + (e.fbclid ? '<span class="text-purple-500">fb ad</span>' : '') + '</td></tr>';
+      }).join('');
+      setContent(
+        // Health overview
+        '<div class="bg-white rounded-2xl shadow-sm p-5 mb-5">' +
+          '<h3 class="font-bold mb-4"><i class="fas fa-heart-pulse text-red-500 mr-2"></i>পিক্সেল হেলথ চেক</h3>' +
+          '<div class="grid grid-cols-2 md:grid-cols-4 gap-4">' +
+            '<div class="bg-gray-50 rounded-xl p-3">' + healthBadge(h.pixel_configured, 'Pixel ID সেট আছে', 'Pixel ID নেই') + '</div>' +
+            '<div class="bg-gray-50 rounded-xl p-3">' + healthBadge(h.pixel_enabled, 'Pixel চালু', 'Pixel বন্ধ') + '</div>' +
+            '<div class="bg-gray-50 rounded-xl p-3">' + healthBadge(h.capi_configured, 'CAPI Token সেট আছে', 'CAPI Token নেই') + '</div>' +
+            '<div class="bg-gray-50 rounded-xl p-3">' + healthBadge(h.capi_enabled, 'CAPI চালু', 'CAPI বন্ধ') + '</div>' +
+          '</div>' +
+          '<div class="grid grid-cols-3 gap-3 mt-4">' +
+            card('মোট ইভেন্ট (৭ দিন)', cs.total, 'fa-chart-simple', 'bg-blue-100 text-blue-600') +
+            card('CAPI পাঠানো', cs.sent, 'fa-paper-plane', 'bg-emerald-100 text-emerald-600') +
+            card('CAPI ব্যর্থ', cs.failed, 'fa-triangle-exclamation', cs.failed > 0 ? 'bg-red-100 text-red-500' : 'bg-gray-100 text-gray-400') +
+          '</div>' +
+        '</div>' +
+        // Settings form
+        '<form onsubmit="AV.savePixel(event)">' +
+        sectionCard('<i class="fab fa-facebook text-blue-600 mr-2"></i>Meta Pixel (ব্রাউজার-সাইড)',
+          '<div class="grid md:grid-cols-2 gap-x-4">' +
+          f('meta_pixel_id', 'Pixel ID *', '1234567890') +
+          f('meta_pixel_enabled', 'Pixel চালু (1) / বন্ধ (0)') + '</div>' +
+          f('meta_events_enabled', 'সক্রিয় ইভেন্ট (কমা দিয়ে)', 'PageView,ViewContent,InitiateCheckout,Lead,Purchase') +
+          '<p class="text-xs text-gray-400 mt-1"><i class="fas fa-circle-info mr-1"></i>Pixel ID পাবেন: Meta Events Manager → Data Sources → আপনার Pixel → Settings</p>') +
+        sectionCard('<i class="fas fa-server text-indigo-600 mr-2"></i>Conversions API (সার্ভার-সাইড)',
+          '<div class="grid md:grid-cols-2 gap-x-4">' +
+          f('meta_capi_token', 'CAPI Access Token (গোপন)', 'EAAxxxx...') +
+          f('meta_capi_enabled', 'CAPI চালু (1) / বন্ধ (0)') + '</div>' +
+          f('meta_test_event_code', 'Test Event Code (ঐচ্ছিক)', 'TEST12345') +
+          '<div class="bg-blue-50 rounded-xl p-3 mt-2 text-xs text-blue-800 space-y-1">' +
+            '<div><i class="fas fa-shield-halved mr-1"></i><b>CAPI কেন জরুরি:</b> iOS 14+ / অ্যাড ব্লকারে ব্রাউজার পিক্সেল ব্লক হলেও সার্ভার থেকে ইভেন্ট Meta-তে পৌঁছাবে — কোনো Purchase ইভেন্ট মিস হবে না।</div>' +
+            '<div><i class="fas fa-key mr-1"></i>Token নিন: Events Manager → Settings → Conversions API → Generate Access Token</div>' +
+            '<div><i class="fas fa-flask mr-1"></i>Test Event Code দিলে টেস্ট ইভেন্টগুলো Events Manager → Test Events ট্যাবে লাইভ দেখা যাবে।</div>' +
+            '<div><i class="fas fa-lock mr-1"></i>Token কখনো ফ্রন্টএন্ডে exposed হয় না — শুধু সার্ভারে থাকে।</div>' +
+          '</div>') +
+        sectionCard('<i class="fas fa-chart-simple text-orange-500 mr-2"></i>অন্যান্য ট্র্যাকিং (ঐচ্ছিক)',
+          '<div class="grid md:grid-cols-3 gap-x-4">' +
+          f('ga_id', 'Google Analytics ID', 'G-XXXX') + f('gtm_id', 'GTM ID', 'GTM-XXXX') + f('tiktok_pixel_id', 'TikTok Pixel ID') + '</div>') +
+        '<div class="flex gap-3 mb-6">' +
+          '<button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl"><i class="fas fa-floppy-disk mr-2"></i>পিক্সেল সেটিংস সংরক্ষণ</button>' +
+          '<button type="button" onclick="AV.pixelTest()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-5 rounded-xl"><i class="fas fa-flask mr-2"></i>CAPI টেস্ট ইভেন্ট পাঠান</button>' +
+        '</div>' +
+        '</form>' +
+        // Event stats + log
+        '<div class="grid lg:grid-cols-2 gap-5">' +
+          sectionCard('<i class="fas fa-chart-column text-emerald-600 mr-2"></i>ইভেন্ট পরিসংখ্যান (শেষ ৭ দিন)', tbl(['ইভেন্ট', 'সংখ্যা', 'CAPI পাঠানো'], evRows)) +
+          sectionCard('<i class="fas fa-list text-gray-600 mr-2"></i>সাম্প্রতিক ইভেন্ট লগ', tbl(['সময়', 'ইভেন্ট', 'Event ID', 'CAPI', 'সোর্স'], logRows)) +
+        '</div>' +
+        // Setup guide
+        sectionCard('<i class="fas fa-book text-amber-600 mr-2"></i>সম্পূর্ণ সেটাপ গাইড',
+          '<ol class="list-decimal list-inside space-y-2 text-sm text-gray-700">' +
+            '<li><b>Pixel তৈরি:</b> business.facebook.com → Events Manager → Connect Data Sources → Web → Pixel তৈরি করুন।</li>' +
+            '<li><b>Pixel ID কপি</b> করে উপরের ঘরে বসান, "Pixel চালু" = 1 দিন।</li>' +
+            '<li><b>CAPI Token:</b> Events Manager → আপনার Pixel → Settings → Conversions API → Generate Access Token → কপি করে বসান, "CAPI চালু" = 1 দিন।</li>' +
+            '<li><b>টেস্ট:</b> Events Manager → Test Events ট্যাব খুলুন → Test Event Code কপি করে উপরে বসিয়ে সংরক্ষণ করুন → "CAPI টেস্ট ইভেন্ট পাঠান" ক্লিক করুন → Events Manager-এ ইভেন্ট দেখা গেলে সব ঠিক আছে। ✅</li>' +
+            '<li><b>ভেরিফাই:</b> ল্যান্ডিং পেজে গিয়ে একটি টেস্ট অর্ডার দিন — PageView, ViewContent, InitiateCheckout, Lead, Purchase সব ইভেন্ট উপরের লগে ও Events Manager-এ দেখা যাবে।</li>' +
+            '<li><b>ডুপ্লিকেশন চিন্তা নেই:</b> ব্রাউজার ও সার্ভার দুই দিক থেকে একই event_id পাঠানো হয়, Meta নিজেই ডিডুপ্লিকেট করে।</li>' +
+          '</ol>'),
+        'পিক্সেল সেটাপ');
+    }).catch(apiErr);
+  }
+  AV.savePixel = function (ev) {
+    ev.preventDefault();
+    var payload = {};
+    document.querySelectorAll('[id^="px-"]').forEach(function (el) { payload[el.id.slice(3)] = el.value; });
+    axios.put('/api/admin/pixel', payload).then(function () { toast('পিক্সেল সেটিংস সংরক্ষিত হয়েছে'); viewPixel(); }).catch(apiErr);
+  };
+  AV.pixelTest = function () {
+    toast('টেস্ট ইভেন্ট পাঠানো হচ্ছে...');
+    axios.post('/api/admin/pixel/test-event').then(function (r) {
+      if (r.data.success) {
+        modal('<i class="fas fa-circle-check text-emerald-600 mr-2"></i>CAPI টেস্ট সফল!',
+          '<p class="text-sm text-gray-700 mb-3">Meta সার্ভারে টেস্ট ইভেন্ট পৌঁছেছে। Events Manager → Test Events ট্যাবে দেখুন।</p>' +
+          '<div class="bg-gray-50 rounded-xl p-3 text-xs font-mono break-all">' + esc(r.data.response) + '</div>',
+          '<button onclick="A.closeModal()" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold">ঠিক আছে</button>');
+      } else {
+        modal('<i class="fas fa-circle-xmark text-red-500 mr-2"></i>CAPI টেস্ট ব্যর্থ',
+          '<p class="text-sm text-gray-700 mb-3">Meta সার্ভার ইভেন্ট গ্রহণ করেনি। Token ও Pixel ID সঠিক কিনা দেখুন।</p>' +
+          '<div class="bg-red-50 rounded-xl p-3 text-xs font-mono break-all text-red-700">' + esc(r.data.response || r.data.error) + '</div>',
+          '<button onclick="A.closeModal()" class="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">বন্ধ</button>');
+      }
+    }).catch(apiErr);
+  };
+
+  // ============ HERO BANNERS (in content view) ============
+  function loadBanners(cb) {
+    axios.get('/api/admin/banners').then(function (r) { S._banners = r.data.banners || []; cb(); }).catch(apiErr);
+  }
+  AV.editBanner = function (id) {
+    var b = (S._banners || []).find(function (x) { return x.id === id; }) || {};
+    modal(id ? 'ব্যানার এডিট' : 'নতুন ব্যানার',
+      field('ছবির URL *', inp('bnr-img', b.image_url, 'https://...jpg')) +
+      '<div id="bnr-preview" class="mb-3">' + (b.image_url ? '<img src="' + esc(b.image_url) + '" class="rounded-xl w-full max-h-40 object-cover">' : '') + '</div>' +
+      field('টাইটেল (ঐচ্ছিক)', inp('bnr-title', b.title)) +
+      field('সাবটাইটেল (ঐচ্ছিক)', inp('bnr-sub', b.subtitle)) +
+      field('লিংক URL (ঐচ্ছিক — ক্লিক করলে যাবে)', inp('bnr-link', b.link_url)) +
+      field('Sort (ছোট আগে দেখাবে)', inp('bnr-sort', b.sort_order || 0, '', 'number')) +
+      checkbox('bnr-active', b.is_active !== 0, 'সক্রিয় (ল্যান্ডিং পেজে দেখাবে)') +
+      '<p class="text-xs text-gray-400 mt-2"><i class="fas fa-circle-info mr-1"></i>একাধিক সক্রিয় ব্যানার থাকলে হিরো সেকশনে অটো-স্লাইড হবে। রেকমেন্ডেড সাইজ: 800×600 (4:3)।</p>',
+      '<button onclick="A.closeModal()" class="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">বাতিল</button>' +
+      '<button onclick="AV.saveBanner(' + (id || 0) + ')" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold">সংরক্ষণ</button>');
+  };
+  AV.saveBanner = function (id) {
+    var payload = { image_url: v('bnr-img'), title: v('bnr-title'), subtitle: v('bnr-sub'), link_url: v('bnr-link'), sort_order: Number(v('bnr-sort') || 0), is_active: chk('bnr-active') };
+    if (!payload.image_url) { toast('ছবির URL দিন'); return; }
+    (id ? axios.put('/api/admin/banners/' + id, payload) : axios.post('/api/admin/banners', payload))
+      .then(function () { closeModal(); toast('ব্যানার সংরক্ষিত'); viewContent(); }).catch(apiErr);
+  };
+  AV.deleteBanner = function (id) {
+    confirmDlg('ব্যানারটি ডিলিট করবেন?', function () {
+      axios.delete('/api/admin/banners/' + id).then(function () { toast('ডিলিট হয়েছে'); viewContent(); }).catch(apiErr);
+    });
+  };
+  function bannerSectionHtml() {
+    var rows = (S._banners || []).map(function (b) {
+      return '<div class="flex items-center justify-between bg-gray-50 rounded-xl p-3 mb-2">' +
+        '<div class="flex items-center gap-3 min-w-0">' +
+          '<img src="' + esc(b.image_url) + '" class="w-16 h-12 rounded-lg object-cover shrink-0" onerror="this.style.display=\'none\'">' +
+          '<div class="min-w-0"><div class="font-semibold text-sm truncate">' + (esc(b.title) || '<span class="text-gray-400">টাইটেল নেই</span>') + (b.is_active ? '' : ' <span class="text-xs text-gray-400">(নিষ্ক্রিয়)</span>') + '</div>' +
+          '<div class="text-xs text-gray-400">#' + b.sort_order + (b.link_url ? ' · <i class="fas fa-link"></i>' : '') + '</div></div></div>' +
+        '<div class="flex gap-1 shrink-0"><button onclick="AV.editBanner(' + b.id + ')" class="text-emerald-600 p-1.5"><i class="fas fa-pen"></i></button><button onclick="AV.deleteBanner(' + b.id + ')" class="text-red-500 p-1.5"><i class="fas fa-trash-can"></i></button></div></div>';
+    }).join('') || '<div class="text-gray-400 text-sm">কোনো ব্যানার নেই — ব্যানার না থাকলে প্রোডাক্টের ছবি দেখাবে</div>';
+    return sectionCard('<i class="fas fa-images text-pink-500 mr-2"></i>হিরো ব্যানার স্লাইডার',
+      '<p class="text-xs text-gray-500 mb-3">ল্যান্ডিং পেজের প্রথম সেকশনে (প্রোডাক্ট ফটোর জায়গায়) এই ব্যানারগুলো অটো-স্লাইড হবে।</p>' + rows,
+      '<button onclick="AV.editBanner(0)" class="bg-pink-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold"><i class="fas fa-plus mr-1"></i>ব্যানার যোগ</button>');
+  }
+
   // ============ register all views ============
   H.registerViews({
     dashboard: C.dashboard, orders: C.orders, orderDetail: C.orderDetail,
     products: C2.products, customers: C2.customers, customerDetail: C2.customerDetail, couriers: C2.couriers,
     marketing: viewMarketing, finance: viewFinance, analytics: viewAnalytics,
-    content: viewContent, settings: viewSettings, users: viewUsers
+    content: viewContent, settings: viewSettings, users: viewUsers,
+    incomplete: viewIncomplete, pixel: viewPixel
   });
 })();

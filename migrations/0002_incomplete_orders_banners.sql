@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS incomplete_orders (
   product_name TEXT,
   package_id INTEGER,
   package_name TEXT,
+  quantity INTEGER DEFAULT 1,
   subtotal REAL DEFAULT 0,
   delivery_charge REAL DEFAULT 0,
   grand_total REAL DEFAULT 0,
