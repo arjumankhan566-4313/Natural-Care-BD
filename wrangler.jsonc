@@ -1,14 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "webapp",
+  "name": "natural-care-bd",
   "compatibility_date": "2026-08-25",
   "pages_build_output_dir": "./dist",
   "compatibility_flags": ["nodejs_compat"],
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "webapp-production",
-      "database_id": "local-dev-placeholder"
+      "database_name": "natural-care-bd-production",
+      "database_id": "7cc4606a-f11f-4ef8-ba4e-78a603668c1f"
     }
   ]
 }

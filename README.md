@@ -6,12 +6,13 @@
 - **Stack**: Hono + TypeScript + Cloudflare Pages + D1 (SQLite) + TailwindCSS (CDN) + Chart.js
 
 ## URLs
+- **Production (Live)**: https://natural-care-bd.pages.dev
 - **Sandbox (Dev)**: https://3000-io0pg26tejjrjlxl7g7ky-ecea8f22.sandbox.novita.ai
 - **GitHub**: https://github.com/arjumankhan566-4313/Natural-Care-BD
 - **Landing Page**: `/`
 - **Order Tracking**: `/track-order`
 - **Admin Panel**: `/admin` — লগইন: `arjumankhan566@gmail.com` (পাসওয়ার্ড admin panel মালিকের কাছে)
-- **Production**: এখনো ডিপ্লয় হয়নি (Cloudflare Pages ready)
+- **Deployment**: ✅ Cloudflare Pages (project: `natural-care-bd`, D1: `natural-care-bd-production`) — Last deployed: 2026-08-28
 
 ## Completed Features (সম্পূর্ণ কার্যকর — শুধু UI নয়)
 
