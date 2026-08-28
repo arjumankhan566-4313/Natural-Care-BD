@@ -221,22 +221,28 @@
 
   // ============ HERO BANNER SLIDER ============
   function renderHeroBanner(d, product, discountPct) {
-    var banners = d.banners || [];
-    if (!banners.length) {
-      // Fallback: product main image (previous behaviour)
-      return (product ? '<img src="' + esc(product.main_image) + '" alt="' + esc(product.name) + '" class="rounded-2xl shadow-2xl w-full" loading="eager">' +
-        (discountPct ? '<div class="badge-float absolute -top-3 -right-3 bg-red-500 text-white w-20 h-20 rounded-full flex flex-col items-center justify-center font-bold shadow-lg"><span class="text-xl">' + discountPct + '%</span><span class="text-xs">৛াড়</span></div>' : '') : '');
+    // Admin banners first; if none, fall back to sliding the product's own images
+    var banners = (d.banners || []).slice();
+    if (!banners.length && product) {
+      var imgs = [product.main_image].concat((product.gallery_images || []).filter(function (g) { return g && g !== product.main_image; }));
+      banners = imgs.filter(Boolean).map(function (u) { return { image_url: u, title: '', subtitle: '', link_url: '' }; });
     }
+    if (!banners.length) return '';
+    // First slide stays in normal flow (w-full h-auto) so the banner keeps
+    // exactly the same size as the original product image. Other slides are
+    // absolutely positioned on top and cross-fade.
     var slides = banners.map(function (b, i) {
-      var img = '<img src="' + esc(b.image_url) + '" alt="' + esc(b.title || 'banner') + '" class="w-full h-full object-cover" loading="' + (i === 0 ? 'eager' : 'lazy') + '">';
+      var imgCls = i === 0 ? 'w-full h-auto block' : 'w-full h-full object-cover';
+      var img = '<img src="' + esc(b.image_url) + '" alt="' + esc(b.title || (product ? product.name : 'banner')) + '" class="' + imgCls + '" loading="' + (i === 0 ? 'eager' : 'lazy') + '">';
       var caption = (b.title || b.subtitle) ?
         '<div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4 pt-10">' +
           (b.title ? '<div class="text-white font-bold text-lg drop-shadow">' + esc(b.title) + '</div>' : '') +
           (b.subtitle ? '<div class="text-white/90 text-sm drop-shadow">' + esc(b.subtitle) + '</div>' : '') +
         '</div>' : '';
-      var inner = '<div class="relative w-full h-full">' + img + caption + '</div>';
+      var inner = img + caption;
       if (b.link_url) inner = '<a href="' + esc(b.link_url) + '" class="block w-full h-full">' + inner + '</a>';
-      return '<div class="banner-slide absolute inset-0 transition-opacity duration-700 ' + (i === 0 ? 'opacity-100 z-10' : 'opacity-0 z-0') + '" data-slide="' + i + '">' + inner + '</div>';
+      var wrapCls = i === 0 ? 'banner-slide relative' : 'banner-slide absolute inset-0';
+      return '<div class="' + wrapCls + ' transition-opacity duration-700 ' + (i === 0 ? 'opacity-100 z-10' : 'opacity-0 z-0') + '" data-slide="' + i + '">' + inner + '</div>';
     }).join('');
     var dots = banners.length > 1 ?
       '<div class="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex gap-2">' +
@@ -247,7 +253,8 @@
     var arrows = banners.length > 1 ?
       '<button type="button" onclick="NCB.goBanner(-1,true)" class="absolute left-2 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-black/30 hover:bg-black/50 text-white flex items-center justify-center" aria-label="previous"><i class="fas fa-chevron-left"></i></button>' +
       '<button type="button" onclick="NCB.goBanner(1,true)" class="absolute right-2 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full bg-black/30 hover:bg-black/50 text-white flex items-center justify-center" aria-label="next"><i class="fas fa-chevron-right"></i></button>' : '';
-    return '<div id="hero-banner" class="relative rounded-2xl shadow-2xl overflow-hidden w-full" style="aspect-ratio:4/3">' + slides + dots + arrows + '</div>';
+    var badge = discountPct ? '<div class="badge-float absolute -top-3 -right-3 z-30 bg-red-500 text-white w-20 h-20 rounded-full flex flex-col items-center justify-center font-bold shadow-lg"><span class="text-xl">' + discountPct + '%</span><span class="text-xs">\u099b\u09be\u09dc</span></div>' : '';
+    return '<div id="hero-banner" class="relative rounded-2xl shadow-2xl overflow-hidden w-full">' + slides + dots + arrows + '</div>' + badge;
   }
 
   var bannerIdx = 0, bannerTimer = null;
