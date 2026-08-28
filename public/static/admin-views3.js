@@ -309,8 +309,19 @@
         '<form onsubmit="AV.saveSettings(event)">' +
         grp('<i class="fas fa-store text-emerald-600 mr-2"></i>ব্র্যান্ড ও জেনারেল',
           '<div class="grid md:grid-cols-2 gap-x-4">' +
-          f('brand_name', 'ব্র্যান্ড নাম') + f('brand_tagline', 'ট্যাগলাইন') + f('brand_logo', 'লোগো URL') +
+          f('brand_name', 'ব্র্যান্ড নাম') + f('brand_tagline', 'ট্যাগলাইন') +
           f('support_phone', 'সাপোর্ট ফোন') + f('whatsapp_number', 'WhatsApp নম্বর (880...)') + f('messenger_link', 'Messenger লিংক') + '</div>') +
+        grp('<i class="fas fa-image text-pink-500 mr-2"></i>লোগো ও ফ্যাভিকন',
+          '<div class="grid md:grid-cols-2 gap-4 mb-2">' +
+            assetUploader('brand_logo', 'সাইটের লোগো', st.brand_logo, 'ল্যান্ডিং পেজ, অ্যাডমিন লগইন ও অ্যাডমিন প্যানেলে দেখাবে (PNG, স্বচ্ছ ব্যাকগ্রাউন্ড সবচেয়ে ভালো)') +
+            assetUploader('favicon', 'ফ্যাভিকন (ব্রাউজার ট্যাবের আইকন)', st.favicon_url, 'বর্গাকার ছবি দিন — 64x64 বা 128x128 px হলে ভালো') +
+          '</div>' +
+          '<p class="text-xs text-gray-400">আপলোড করলেই সাথে সাথে সব জায়গায় বসে যাবে — আলাদা করে সেইভ করা লাগবে না।</p>') +
+        grp('<i class="fas fa-certificate text-amber-500 mr-2"></i>BSTI সার্টিফিকেট',
+          '<div class="grid md:grid-cols-2 gap-x-4">' +
+          f('bsti_enabled', 'ল্যান্ডিং পেজে দেখান (1 = হ্যাঁ / 0 = না)') + f('bsti_title', 'সেকশন টাইটেল') + '</div>' +
+          field('বিবরণ', textarea('st-bsti_description', st.bsti_description, 2)) +
+          assetUploader('bsti_certificate', 'BSTI সার্টিফিকেটের ছবি', st.bsti_certificate_image, 'সার্টিফিকেটের পরিষ্কার ছবি/স্ক্যান আপলোড করুন — ল্যান্ডিং পেজে দেখাবে')) +
         grp('<i class="fas fa-heading text-blue-500 mr-2"></i>হিরো ও অফার কনটেন্ট',
           f('hero_headline', 'হেডলাইন') +
           field('সাবহেডলাইন', textarea('st-hero_subheadline', st.hero_subheadline, 2)) +
@@ -360,6 +371,59 @@
         'সেটিংস');
     }).catch(apiErr);
   }
+  // ---------- Asset uploader (logo / favicon / BSTI certificate) ----------
+  function assetUploader(key, label, currentUrl, hint) {
+    return '<div class="mb-3">' +
+      '<label class="block text-sm font-semibold text-gray-700 mb-1.5">' + label + '</label>' +
+      '<div class="flex items-center gap-3">' +
+        '<div id="asset-prev-' + key + '" class="w-16 h-16 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden shrink-0">' +
+          (currentUrl ? '<img src="' + esc(currentUrl) + '" class="w-full h-full object-contain">' : '<i class="fas fa-image text-gray-300 text-xl"></i>') +
+        '</div>' +
+        '<div class="flex-1">' +
+          '<input type="file" id="asset-file-' + key + '" accept="image/*" class="hidden" onchange="AV.uploadAsset(\'' + key + '\')">' +
+          '<div class="flex gap-2">' +
+            '<button type="button" onclick="document.getElementById(\'asset-file-' + key + '\').click()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg"><i class="fas fa-upload mr-1.5"></i>আপলোড</button>' +
+            (currentUrl ? '<button type="button" onclick="AV.removeAsset(\'' + key + '\')" class="bg-gray-100 hover:bg-red-50 text-red-600 text-sm font-semibold px-3 py-2 rounded-lg"><i class="fas fa-trash"></i></button>' : '') +
+          '</div>' +
+          (hint ? '<p class="text-xs text-gray-400 mt-1">' + hint + '</p>' : '') +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+  AV.uploadAsset = function (key) {
+    var input = document.getElementById('asset-file-' + key);
+    var file = input.files && input.files[0];
+    if (!file) return;
+    if (!/^image\//.test(file.type)) { toast('শুধু ইমেজ ফাইল দিন', 'error'); return; }
+    var maxDim = key === 'favicon' ? 128 : (key === 'brand_logo' ? 512 : 1400);
+    var img = new Image();
+    var fr = new FileReader();
+    fr.onload = function () { img.src = fr.result; };
+    img.onload = function () {
+      // Resize client-side to keep D1 rows small
+      var scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      var cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * scale); cv.height = Math.round(img.height * scale);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      var isPhoto = key === 'bsti_certificate';
+      var mime = isPhoto ? 'image/jpeg' : 'image/png';
+      var dataUrl = cv.toDataURL(mime, isPhoto ? 0.85 : undefined);
+      var b64 = dataUrl.split(',')[1];
+      toast('আপলোড হচ্ছে...');
+      axios.post('/api/admin/assets/' + key, { data: b64, mime: mime }).then(function (r) {
+        toast('আপলোড সফল! সব জায়গায় বসে গেছে ✅');
+        var prev = document.getElementById('asset-prev-' + key);
+        if (prev) prev.innerHTML = '<img src="' + r.data.url + '" class="w-full h-full object-contain">';
+      }).catch(apiErr);
+    };
+    fr.readAsDataURL(file);
+  };
+  AV.removeAsset = function (key) {
+    confirmDlg('এই ইমেজটি মুছে ফেলবেন?', function () {
+      axios.delete('/api/admin/assets/' + key).then(function () { toast('মুছে ফেলা হয়েছে'); viewSettings(); }).catch(apiErr);
+    });
+  };
+
   AV.saveSettings = function (ev) {
     ev.preventDefault();
     var payload = {};

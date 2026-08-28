@@ -33,6 +33,7 @@ pub.get('/content', async (c) => {
     'countdown_enabled', 'countdown_end', 'countdown_fallback_text',
     'delivery_charge_dhaka', 'delivery_charge_outside', 'free_delivery_enabled', 'free_delivery_min',
     'otp_enabled', 'meta_pixel_id', 'meta_pixel_enabled', 'meta_events_enabled', 'ga_id', 'gtm_id', 'tiktok_pixel_id', 'banner_autoplay_seconds',
+    'bsti_enabled', 'bsti_title', 'bsti_description', 'bsti_certificate_image', 'favicon_url',
     'seo_title', 'seo_description', 'seo_keywords', 'og_image', 'canonical_url', 'robots', 'fb_share_title', 'fb_share_description']
   for (const k of allowedKeys) if (settings[k] !== undefined) publicSettings[k] = settings[k]
 

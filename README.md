@@ -6,7 +6,7 @@
 - **Stack**: Hono + TypeScript + Cloudflare Pages + D1 (SQLite) + TailwindCSS (CDN) + Chart.js
 
 ## URLs
-- **Production (Live)**: https://natural-care-bd.pages.dev
+- **Production (Live)**: https://naturalcarebangladesh.shop (কাস্টম ডোমেইন) / https://natural-care-bd.pages.dev
 - **Sandbox (Dev)**: https://3000-io0pg26tejjrjlxl7g7ky-ecea8f22.sandbox.novita.ai
 - **GitHub**: https://github.com/arjumankhan566-4313/Natural-Care-BD
 - **Landing Page**: `/`
@@ -126,4 +126,10 @@ npm run build && npx wrangler pages deploy dist --project-name webapp
 
 ## Status
 - **Platform**: Cloudflare Pages (D1) — sandbox-এ সম্পূর্ণ কার্যকর
-- **Last Updated**: 2026-08-28 (incomplete orders + pixel section + hero banner slider যোগ হয়েছে)
+- **Last Updated**: 2026-08-28 (ব্র্যান্ড লোগো সব জায়গায় + ফ্যাভিকন + BSTI সার্টিফিকেট সেকশন + অ্যাডমিন থেকে লোগো/ফ্যাভিকন/সার্টিফিকেট আপলোড সিস্টেম)
+
+### ব্র্যান্ডিং ও BSTI (নতুন — 2026-08-28)
+- ✅ লোগো: ল্যান্ডিং হেডার, অ্যাডমিন লগইন পেজ, অ্যাডমিন সাইডবার, ফ্যাভিকন (ব্রাউজার ট্যাব)
+- ✅ অ্যাডমিন সেটিংস → "লোগো ও ফ্যাভিকন" সেকশন থেকে যেকোনো সময় লোগো/ফ্যাভিকন আপলোড/পরিবর্তন (ক্লায়েন্ট-সাইড রিসাইজ + D1 তে সংরক্ষণ, `/assets/:key` দিয়ে serve)
+- ✅ BSTI সার্টিফিকেট সেকশন ল্যান্ডিং পেজে (টাইটেল/বিবরণ/ছবি অ্যাডমিন থেকে নিয়ন্ত্রণ, 1/0 দিয়ে অন/অফ, ছবিতে ট্যাপ করলে জুম)
+- API: `POST /api/admin/assets/:key` (brand_logo | favicon | bsti_certificate | og_image_asset), `DELETE /api/admin/assets/:key`, public serve: `GET /assets/:key`

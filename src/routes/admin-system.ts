@@ -41,6 +41,44 @@ settings.put('/', async (c) => {
 
 r.route('/settings', settings)
 
+// ---------- ASSET UPLOAD (logo / favicon / BSTI certificate — stored in D1 as base64) ----------
+const ASSET_KEYS = ['brand_logo', 'favicon', 'bsti_certificate', 'og_image_asset']
+const ASSET_SETTING_MAP: Record<string, string> = {
+  brand_logo: 'brand_logo',
+  favicon: 'favicon_url',
+  bsti_certificate: 'bsti_certificate_image',
+  og_image_asset: 'og_image'
+}
+r.post('/assets/:key', requireAuth('settings'), async (c) => {
+  const db = c.env.DB
+  const user = c.get('user')
+  const key = c.req.param('key')
+  if (!ASSET_KEYS.includes(key)) return c.json({ message: 'অবৈধ অ্যাসেট কী' }, 400)
+  const body = await c.req.json<{ data: string; mime: string }>()
+  const { data, mime } = body || ({} as any)
+  if (!data || !mime) return c.json({ message: 'ইমেজ ডেটা পাওয়া যায়নি' }, 400)
+  if (!/^image\/(png|jpe?g|webp|gif|svg\+xml)$/.test(mime)) return c.json({ message: 'শুধু ইমেজ ফাইল (PNG/JPG/WEBP) আপলোড করা যাবে' }, 400)
+  // base64 size check: ~1.33x of raw. Limit raw ~1.5MB
+  if (data.length > 2_000_000) return c.json({ message: 'ফাইল খুব বড়। সর্বোচ্চ ~1.5MB ইমেজ দিন (ছোট করে আবার চেষ্টা করুন)' }, 400)
+  await db.prepare('INSERT INTO assets (key, mime, data, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET mime = excluded.mime, data = excluded.data, updated_at = CURRENT_TIMESTAMP')
+    .bind(key, mime, data).run()
+  // Point the related setting to the served asset URL (cache-busted)
+  const url = `/assets/${key}?v=${Date.now()}`
+  await setSetting(db, ASSET_SETTING_MAP[key], url)
+  await auditLog(db, user.id, user.username, 'update', 'assets', key, `Asset uploaded: ${key}`)
+  return c.json({ success: true, url })
+})
+r.delete('/assets/:key', requireAuth('settings'), async (c) => {
+  const db = c.env.DB
+  const user = c.get('user')
+  const key = c.req.param('key')
+  if (!ASSET_KEYS.includes(key)) return c.json({ message: 'অবৈধ অ্যাসেট কী' }, 400)
+  await db.prepare('DELETE FROM assets WHERE key = ?').bind(key).run()
+  await setSetting(db, ASSET_SETTING_MAP[key], '')
+  await auditLog(db, user.id, user.username, 'delete', 'assets', key, `Asset removed: ${key}`)
+  return c.json({ success: true })
+})
+
 // ---------- USERS ----------
 const users = new Hono<Env>()
 users.use('*', requireAuth('*')) // super_admin only via wildcard perm

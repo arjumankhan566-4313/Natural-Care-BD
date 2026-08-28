@@ -73,7 +73,7 @@
     '<header class="bg-white/95 backdrop-blur sticky top-0 z-40 border-b border-gray-100 shadow-sm">' +
       '<div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">' +
         '<div class="flex items-center gap-2">' +
-          (s.brand_logo ? '<img src="' + esc(s.brand_logo) + '" alt="logo" class="h-10">' :
+          (s.brand_logo ? '<img src="' + esc(s.brand_logo) + '" alt="logo" class="h-11 w-11 object-contain">' :
           '<div class="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white"><i class="fas fa-leaf"></i></div>') +
           '<div><div class="font-bold text-emerald-800 leading-tight">' + esc(s.brand_name) + '</div>' +
           '<div class="text-xs text-gray-500">' + esc(s.brand_tagline || '') + '</div></div>' +
@@ -127,6 +127,21 @@
 
     // ===== PRODUCT SECTION =====
     (product ? renderProduct(product) : '') +
+
+    // ===== BSTI CERTIFICATE =====
+    (s.bsti_enabled === '1' ?
+    '<section id="bsti-section" class="py-10 bg-gradient-to-b from-white to-emerald-50/60">' +
+      '<div class="max-w-4xl mx-auto px-4 text-center">' +
+        '<div class="inline-flex items-center gap-2 bg-emerald-100 text-emerald-800 px-4 py-1.5 rounded-full text-sm font-bold mb-4"><i class="fas fa-certificate"></i> সরকারি অনুমোদিত</div>' +
+        '<h2 class="text-2xl md:text-3xl font-bold text-gray-900 mb-3">' + esc(s.bsti_title || 'BSTI অনুমোদিত পণ্য') + '</h2>' +
+        '<p class="text-gray-600 max-w-2xl mx-auto mb-6">' + esc(s.bsti_description || '') + '</p>' +
+        (s.bsti_certificate_image ?
+          '<div class="inline-block bg-white rounded-2xl shadow-xl border border-emerald-100 p-3 md:p-4 max-w-md mx-auto">' +
+            '<img src="' + esc(s.bsti_certificate_image) + '" alt="BSTI সার্টিফিকেট" class="rounded-xl w-full cursor-zoom-in" onclick="NCB.zoomCert(this.src)">' +
+            '<div class="text-xs text-gray-400 mt-2"><i class="fas fa-magnifying-glass-plus mr-1"></i>বড় করে দেখতে ছবিতে ট্যাপ করুন</div>' +
+          '</div>' : '') +
+      '</div>' +
+    '</section>' : '') +
 
     // ===== BENEFITS =====
     (d.benefits.length ?
@@ -672,7 +687,14 @@
     submitOrder: submitOrder,
     requestOtp: requestOtp,
     verifyOtp: verifyOtp,
-    goBanner: function (i, relative) { showBanner(relative ? bannerIdx + i : i); }
+    goBanner: function (i, relative) { showBanner(relative ? bannerIdx + i : i); },
+    zoomCert: function (src) {
+      var m = document.createElement('div');
+      m.className = 'fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4';
+      m.onclick = function () { m.remove(); };
+      m.innerHTML = '<img src="' + src + '" class="max-w-full max-h-[90vh] rounded-xl shadow-2xl"><button class="absolute top-4 right-4 text-white text-3xl"><i class="fas fa-xmark"></i></button>';
+      document.body.appendChild(m);
+    }
   };
 
   // ============ INIT ============

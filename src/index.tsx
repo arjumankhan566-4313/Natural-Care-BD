@@ -24,10 +24,29 @@ app.use('*', async (c, next) => {
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin')
 })
 
-// Favicon (leaf emoji SVG)
-app.get('/favicon.ico', (c) => {
-  return new Response('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🌿</text></svg>',
-    { headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' } })
+// Favicon — serves uploaded favicon asset, falls back to bundled logo favicon
+app.get('/favicon.ico', async (c) => {
+  try {
+    const row = await c.env.DB.prepare('SELECT mime, data FROM assets WHERE key = ?').bind('favicon').first<{ mime: string; data: string }>()
+    if (row) {
+      const bin = Uint8Array.from(atob(row.data), (ch) => ch.charCodeAt(0))
+      return new Response(bin, { headers: { 'Content-Type': row.mime, 'Cache-Control': 'public, max-age=3600' } })
+    }
+  } catch (e) { /* assets table may not exist yet */ }
+  return c.redirect('/static/favicon.png', 302)
+})
+
+// Uploaded assets (logo / favicon / BSTI certificate) served from D1
+app.get('/assets/:key', async (c) => {
+  const key = c.req.param('key')
+  try {
+    const row = await c.env.DB.prepare('SELECT mime, data FROM assets WHERE key = ?').bind(key).first<{ mime: string; data: string }>()
+    if (!row) return c.notFound()
+    const bin = Uint8Array.from(atob(row.data), (ch) => ch.charCodeAt(0))
+    return new Response(bin, { headers: { 'Content-Type': row.mime, 'Cache-Control': 'public, max-age=3600' } })
+  } catch (e) {
+    return c.notFound()
+  }
 })
 
 // ============ API ROUTES ============
@@ -43,7 +62,7 @@ app.route('/api/admin', adminIncomplete)  // /incomplete-orders, /pixel, /banner
 // ============ LANDING PAGE ============
 app.get('/', async (c) => {
   const s = await getSettings(c.env.DB, ['seo_title', 'seo_description', 'seo_keywords', 'og_image', 'canonical_url', 'robots',
-    'fb_share_title', 'fb_share_description', 'brand_name', 'meta_pixel_id', 'meta_pixel_enabled', 'ga_id', 'gtm_id', 'tiktok_pixel_id'])
+    'fb_share_title', 'fb_share_description', 'brand_name', 'meta_pixel_id', 'meta_pixel_enabled', 'ga_id', 'gtm_id', 'tiktok_pixel_id', 'favicon_url'])
   const esc = (t: string) => (t || '').replace(/</g, '&lt;').replace(/"/g, '&quot;')
 
   const pixelScript = s.meta_pixel_enabled === '1' && s.meta_pixel_id ? `
@@ -69,6 +88,8 @@ app.get('/', async (c) => {
 <meta name="keywords" content="${esc(s.seo_keywords || '')}">
 <meta name="robots" content="${esc(s.robots || 'index, follow')}">
 ${s.canonical_url ? `<link rel="canonical" href="${esc(s.canonical_url)}">` : ''}
+<link rel="icon" type="image/png" href="${esc(s.favicon_url || '/static/favicon.png')}">
+<link rel="apple-touch-icon" href="${esc(s.favicon_url || '/static/logo-small.png')}">
 <meta property="og:type" content="website">
 <meta property="og:title" content="${esc(s.fb_share_title || s.seo_title || '')}">
 <meta property="og:description" content="${esc(s.fb_share_description || s.seo_description || '')}">
@@ -90,7 +111,7 @@ ${pixelScript}${gaScript}${gtmScript}
 
 // ============ TRACK ORDER PAGE ============
 app.get('/track-order', async (c) => {
-  const s = await getSettings(c.env.DB, ['brand_name', 'support_phone'])
+  const s = await getSettings(c.env.DB, ['brand_name', 'support_phone', 'favicon_url'])
   return c.html(`<!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -98,6 +119,7 @@ app.get('/track-order', async (c) => {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>অর্ডার ট্র্যাক করুন — ${(s.brand_name || 'Nature Care Bangladesh').replace(/</g, '&lt;')}</title>
 <meta name="robots" content="noindex">
+<link rel="icon" type="image/png" href="${(s as any).favicon_url || '/static/favicon.png'}">
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
@@ -112,14 +134,17 @@ app.get('/track-order', async (c) => {
 })
 
 // ============ ADMIN PANEL ============
-app.get('/admin', (c) => {
+app.get('/admin', async (c) => {
+  const s = await getSettings(c.env.DB, ['brand_logo', 'favicon_url', 'brand_name']).catch(() => ({} as Record<string, string>))
   return c.html(`<!DOCTYPE html>
 <html lang="bn">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Admin Panel — Nature Care Bangladesh</title>
+<title>Admin Panel — ${(s.brand_name || 'Nature Care Bangladesh').replace(/</g, '&lt;')}</title>
 <meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="${s.favicon_url || '/static/favicon.png'}">
+<script>window.BRAND_LOGO=${JSON.stringify(s.brand_logo || '/static/logo-small.png')};window.BRAND_NAME=${JSON.stringify(s.brand_name || 'Nature Care Bangladesh')};</script>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">

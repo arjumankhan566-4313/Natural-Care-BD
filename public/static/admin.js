@@ -61,8 +61,11 @@
     root.innerHTML =
     '<div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-900 to-emerald-950 px-4">' +
       '<div class="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full">' +
-        '<div class="text-center mb-6"><div class="w-14 h-14 mx-auto mb-3 rounded-full bg-emerald-100 flex items-center justify-center"><i class="fas fa-leaf text-emerald-600 text-xl"></i></div>' +
-        '<h1 class="text-xl font-bold text-gray-900">Nature Care Bangladesh</h1><p class="text-sm text-gray-500">Admin Panel Login</p></div>' +
+        '<div class="text-center mb-6">' +
+          (window.BRAND_LOGO
+            ? '<img src="' + window.BRAND_LOGO + '" alt="logo" class="w-24 h-24 mx-auto mb-3 object-contain drop-shadow-md">'
+            : '<div class="w-14 h-14 mx-auto mb-3 rounded-full bg-emerald-100 flex items-center justify-center"><i class="fas fa-leaf text-emerald-600 text-xl"></i></div>') +
+        '<h1 class="text-xl font-bold text-gray-900">' + (window.BRAND_NAME || 'Nature Care Bangladesh') + '</h1><p class="text-sm text-gray-500">Admin Panel Login</p></div>' +
         '<div id="login-err" class="hidden bg-red-50 text-red-700 text-sm rounded-lg p-3 mb-4"></div>' +
         '<form onsubmit="A.login(event)">' +
           field('ইউজারনেম', inp('l-user', '', 'username')) +
@@ -110,8 +113,10 @@
       // sidebar (desktop)
       '<aside id="sidebar" class="fixed md:sticky top-0 h-screen w-64 bg-emerald-950 text-emerald-100 z-50 -translate-x-full md:translate-x-0 transition-transform flex flex-col">' +
         '<div class="p-5 border-b border-emerald-900 flex items-center gap-3">' +
-          '<div class="w-9 h-9 rounded-full bg-emerald-600 flex items-center justify-center"><i class="fas fa-leaf text-white"></i></div>' +
-          '<div><div class="font-bold text-white text-sm">Nature Care BD</div><div class="text-xs text-emerald-400">Admin Panel</div></div>' +
+          (window.BRAND_LOGO
+            ? '<img src="' + window.BRAND_LOGO + '" alt="logo" class="w-11 h-11 rounded-full bg-white object-contain p-0.5 shadow">'
+            : '<div class="w-9 h-9 rounded-full bg-emerald-600 flex items-center justify-center"><i class="fas fa-leaf text-white"></i></div>') +
+          '<div><div class="font-bold text-white text-sm">' + (window.BRAND_NAME || 'Nature Care BD') + '</div><div class="text-xs text-emerald-400">Admin Panel</div></div>' +
         '</div>' +
         '<nav class="flex-1 overflow-y-auto py-3">' +
           MENU.map(function (m) {
