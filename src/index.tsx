@@ -14,7 +14,7 @@ import adminIncomplete from './routes/admin-incomplete'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Cache-busting version for static JS/CSS — bump on every deploy of frontend assets
-const ASSET_V = '9'
+const ASSET_V = '10'
 
 // CORS for API routes
 app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }))
@@ -65,8 +65,14 @@ app.route('/api/admin', adminIncomplete)  // /incomplete-orders, /pixel, /banner
 // ============ LANDING PAGE ============
 app.get('/', async (c) => {
   const s = await getSettings(c.env.DB, ['seo_title', 'seo_description', 'seo_keywords', 'og_image', 'canonical_url', 'robots',
-    'fb_share_title', 'fb_share_description', 'brand_name', 'meta_pixel_id', 'meta_pixel_enabled', 'ga_id', 'gtm_id', 'tiktok_pixel_id', 'favicon_url'])
+    'fb_share_title', 'fb_share_description', 'brand_name', 'brand_tagline', 'brand_logo', 'meta_pixel_id', 'meta_pixel_enabled',
+    'ga_id', 'gtm_id', 'tiktok_pixel_id', 'favicon_url', 'custom_font_family'])
   const esc = (t: string) => (t || '').replace(/</g, '&lt;').replace(/"/g, '&quot;')
+  const customFont = (s.custom_font_family || '').trim()
+  const fontFamilyCss = customFont ? `'${customFont.replace(/'/g, '')}', 'Hind Siliguri', sans-serif` : `'Hind Siliguri', sans-serif`
+  const customFontLink = customFont
+    ? `<link href="https://fonts.googleapis.com/css2?family=${encodeURIComponent(customFont).replace(/%20/g, '+')}:wght@400;500;600;700;800&display=swap" rel="stylesheet">`
+    : ''
 
   const pixelScript = s.meta_pixel_enabled === '1' && s.meta_pixel_id ? `
   <script>
@@ -101,12 +107,27 @@ ${s.og_image ? `<meta property="og:image" content="${esc(s.og_image)}">` : ''}
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preload" href="/static/tailwind.css?v=${ASSET_V}" as="style">
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+${customFontLink}
 <link href="/static/tailwind.css?v=${ASSET_V}" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
 <link href="/static/landing.css?v=${ASSET_V}" rel="stylesheet">
 ${pixelScript}${gaScript}${gtmScript}
+<style>body{font-family:${fontFamilyCss}}</style>
+<script>
+window.applySiteFont = function (fam) {
+  var styleEl = document.getElementById('dyn-font-style');
+  if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'dyn-font-style'; document.head.appendChild(styleEl); }
+  styleEl.textContent = fam ? "body{font-family:'" + fam + "','Hind Siliguri',sans-serif}" : "body{font-family:'Hind Siliguri',sans-serif}";
+};
+</script>
 </head>
-<body class="bg-white text-gray-800" style="font-family:'Hind Siliguri',sans-serif">
+<body class="bg-white text-gray-800">
+<div id="site-splash">
+  <div class="splash-logo-wrap">${s.brand_logo ? `<img src="${esc(s.brand_logo)}" alt="logo">` : `<i class="fas fa-leaf" style="font-size:38px;color:#059669"></i>`}</div>
+  <div class="splash-brand-name">${esc(s.brand_name || 'Nature Care Bangladesh')}</div>
+  <div class="splash-tagline">${esc(s.brand_tagline || 'প্রাকৃতিক যত্নে সুস্থ জীবন')}</div>
+  <div class="splash-bar"><div class="splash-bar-fill"></div></div>
+</div>
 <div id="app"><div class="min-h-screen flex items-center justify-center"><div class="text-center"><div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div><p class="text-gray-500">লোড হচ্ছে...</p></div></div></div>
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
 <script src="/static/landing.js?v=${ASSET_V}"></script>
@@ -164,9 +185,31 @@ table{font-size:0.875rem}
 @keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
 .skeleton{background:linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%);background-size:200% 100%;animation:shimmer 1.5s infinite}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+#admin-splash{position:fixed;inset:0;z-index:99999;background:linear-gradient(135deg,#064e3b,#065f46 55%,#059669);display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .5s ease,visibility .5s ease}
+#admin-splash.splash-hide{opacity:0;visibility:hidden;pointer-events:none}
+.admin-splash-logo{width:72px;height:72px;border-radius:18px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(0,0,0,.25);animation:adminLogoPop .7s cubic-bezier(.34,1.56,.64,1) both;overflow:hidden}
+.admin-splash-logo img{width:100%;height:100%;object-fit:contain;padding:8px}
+@keyframes adminLogoPop{0%{transform:scale(0) rotate(-20deg);opacity:0}60%{transform:scale(1.12) rotate(4deg);opacity:1}100%{transform:scale(1) rotate(0)}}
+.admin-splash-name{margin-top:18px;color:#fff;font-weight:800;font-size:1.35rem;letter-spacing:.02em;opacity:0;animation:adminNameIn .6s ease .35s both}
+.admin-splash-sub{margin-top:4px;color:#a7f3d0;font-size:.8rem;opacity:0;animation:adminNameIn .6s ease .5s both}
+@keyframes adminNameIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.admin-splash-bar{margin-top:22px;width:160px;height:3px;border-radius:3px;background:rgba(255,255,255,.25);overflow:hidden}
+.admin-splash-bar-fill{height:100%;width:40%;background:#fff;border-radius:3px;animation:adminBarSlide 1.1s ease-in-out infinite}
+@keyframes adminBarSlide{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+.admin-view-in{animation:adminViewIn .35s ease both}
+@keyframes adminViewIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.count-up-num{display:inline-block}
+.kpi-card-in{animation:kpiCardIn .45s ease both}
+@keyframes kpiCardIn{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
 </style>
 </head>
 <body class="bg-gray-100">
+<div id="admin-splash">
+  <div class="admin-splash-logo">${s.brand_logo ? `<img src="${(s.brand_logo || '').replace(/"/g, '&quot;')}" alt="logo">` : `<i class="fas fa-leaf" style="font-size:30px;color:#059669"></i>`}</div>
+  <div class="admin-splash-name">${(s.brand_name || 'Nature Care Bangladesh').replace(/</g, '&lt;')}</div>
+  <div class="admin-splash-sub">অ্যাডমিন প্যানেল লোড হচ্ছে...</div>
+  <div class="admin-splash-bar"><div class="admin-splash-bar-fill"></div></div>
+</div>
 <div id="admin-app"></div>
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
 <script src="/static/admin.js?v=${ASSET_V}"></script>

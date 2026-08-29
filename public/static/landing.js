@@ -137,6 +137,18 @@
     return out;
   }
 
+  // Splits text into words and wraps each in a span with a staggered reveal
+  // animation (advanced "type-in"-style headline effect requested by the client,
+  // similar to big websites' entry animations). baseDelay lets callers offset
+  // the start (e.g. run after the splash screen fades).
+  function animateWords(text, baseDelay) {
+    var words = esc(text).split(' ');
+    var start = baseDelay || 0;
+    return words.map(function (w, i) {
+      return '<span class="text-reveal-word" style="animation-delay:' + (start + i * 0.09).toFixed(2) + 's">' + w + '&nbsp;</span>';
+    }).join('');
+  }
+
   // ============ RENDER ============
   function render() {
     var d = state.data, s = d.settings;
@@ -152,7 +164,7 @@
     // ===== HEADER =====
     '<header class="bg-white/95 backdrop-blur sticky top-0 z-40 border-b border-gray-100 shadow-sm">' +
       '<div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">' +
-        '<div class="flex items-center gap-2">' +
+        '<div class="flex items-center gap-2 brand-name-logo-in">' +
           (s.brand_logo ? '<img src="' + esc(s.brand_logo) + '" alt="logo" class="h-11 w-11 object-contain">' :
           '<div class="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white"><i class="fas fa-leaf"></i></div>') +
           '<div><div class="font-bold text-emerald-800 leading-tight">' + esc(s.brand_name) + '</div>' +
@@ -170,8 +182,8 @@
       '<div class="max-w-6xl mx-auto px-4 py-10 md:py-16 grid md:grid-cols-2 gap-8 items-center">' +
         '<div class="order-2 md:order-1">' +
           '<span class="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-xs font-bold px-3 py-1.5 rounded-full mb-4"><i class="fas fa-bolt"></i> ' + esc(s.offer_title || 'বিশেষ অফার') + '</span>' +
-          '<h1 class="text-3xl md:text-5xl font-bold text-gray-900 leading-snug mb-4">' + esc(s.hero_headline) + '</h1>' +
-          '<p class="text-gray-600 text-base md:text-lg mb-6">' + esc(s.hero_subheadline) + '</p>' +
+          '<h1 class="text-3xl md:text-5xl font-bold text-gray-900 leading-snug mb-4 overflow-hidden">' + animateWords(s.hero_headline, 0.1) + '</h1>' +
+          '<p class="text-gray-600 text-base md:text-lg mb-6 hero-sub-reveal">' + esc(s.hero_subheadline) + '</p>' +
           (product ?
           '<div class="flex items-center gap-4 mb-6">' +
             '<span class="text-3xl md:text-4xl font-bold text-emerald-700">' + money(product.sale_price) + '</span>' +
@@ -530,20 +542,20 @@
           '<form id="order-form" onsubmit="NCB.submitOrder(event)">' +
             '<div class="grid sm:grid-cols-2 gap-4 mb-4">' +
               '<div class="sm:col-span-2"><label class="block text-sm font-semibold text-gray-700 mb-1.5">আপনার নাম *</label>' +
-              '<input type="text" name="customer_name" id="f-name" required autocomplete="name" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="সম্পূর্ণ নাম লিখুন"></div>' +
+              '<input type="text" name="customer_name" id="f-name" required autocomplete="name" oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার নাম লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="সম্পূর্ণ নাম লিখুন"></div>' +
               '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">মোবাইল নম্বর *</label>' +
-              '<input type="tel" name="phone" id="f-phone" required autocomplete="tel" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="01XXXXXXXXX" maxlength="14"></div>' +
+              '<input type="tel" name="phone" id="f-phone" required autocomplete="tel" oninvalid="this.setCustomValidity(\'অনুগ্রহ করে সঠিক মোবাইল নম্বর দিন (01XXXXXXXXX)\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="01XXXXXXXXX" maxlength="14"></div>' +
               '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">বিকল্প মোবাইল (ঐচ্ছিক)</label>' +
               '<input type="tel" name="alt_phone" id="f-alt-phone" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="01XXXXXXXXX" maxlength="14"></div>' +
               '<div class="sm:col-span-2"><label class="block text-sm font-semibold text-gray-700 mb-1.5">সম্পূর্ণ ঠিকানা *</label>' +
-              '<textarea name="address" id="f-address" required rows="2" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="বাসা/হোল্ডিং নম্বর, রোড, এলাকা"></textarea></div>' +
+              '<textarea name="address" id="f-address" required rows="2" oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার সম্পূর্ণ ঠিকানা লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="বাসা/হোল্ডিং নম্বর, রোড, এলাকা"></textarea></div>' +
               '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">জেলা *</label>' +
-              '<select name="district" id="f-district" required class="w-full border border-gray-300 rounded-lg px-4 py-3 bg-white" onchange="NCB.updateTotal()">' +
+              '<select name="district" id="f-district" required oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার জেলা নির্বাচন করুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3 bg-white" onchange="NCB.updateTotal()">' +
                 '<option value="">জেলা নির্বাচন করুন</option>' +
                 DISTRICTS.map(function (dd) { return '<option value="' + dd + '">' + dd + '</option>'; }).join('') +
               '</select></div>' +
-              '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">উপজেলা/থানা</label>' +
-              '<input type="text" name="upazila" id="f-upazila" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="উপজেলা/থানা"></div>' +
+              '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">উপজেলা/থানা *</label>' +
+              '<input type="text" name="upazila" id="f-upazila" required oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার উপজেলা/থানা লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="উপজেলা/থানা লিখুন"></div>' +
               '<div class="sm:col-span-2"><label class="block text-sm font-semibold text-gray-700 mb-1.5">অর্ডার নোট (ঐচ্ছিক)</label>' +
               '<input type="text" name="order_note" id="f-note" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="বিশেষ কোনো নির্দেশনা থাকলে লিখুন"></div>' +
             '</div>' +
@@ -567,6 +579,21 @@
             '<button type="submit" id="submit-btn" class="btn-primary w-full text-white font-bold text-lg py-4 rounded-xl">' +
             '<i class="fas fa-check-circle mr-2"></i>অর্ডার কনফার্ম করুন (ক্যাশ অন ডেলিভারি)</button>' +
             '<p class="text-center text-xs text-gray-500 mt-3"><i class="fas fa-lock mr-1"></i>আপনার তথ্য সম্পূর্ণ নিরাপদ থাকবে</p>' +
+
+            '<div class="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex gap-2.5 items-start">' +
+              '<i class="fas fa-heart text-amber-500 mt-0.5"></i>' +
+              '<p class="text-xs text-amber-800 leading-relaxed">অনুগ্রহ করে সঠিক তথ্য দিয়ে অর্ডার করুন। একটি মিথ্যা/ভুয়া অর্ডারের জন্য আমাদের প্রায় <b>১৩০ টাকা কুরিয়ার খরচ</b> চলে যায়, যা একটি ছোট ব্যবসার জন্য অনেক বড় ক্ষতি। আপনার একটু সচেতনতাই আমাদের পাশে থাকার সবচেয়ে বড় সহযোগিতা 🙏</p>' +
+            '</div>' +
+
+            '<div class="mt-4 bg-emerald-50 border border-emerald-200 rounded-xl p-4">' +
+              '<div class="text-sm font-bold text-emerald-800 mb-2"><i class="fas fa-list-check mr-1.5"></i>অর্ডার করার নিয়ম (৪টি সহজ ধাপ)</div>' +
+              '<ol class="text-xs text-emerald-800 space-y-1.5 list-none">' +
+                '<li class="flex gap-2"><span class="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center">১</span><span>উপরের ফর্মে আপনার নাম, সঠিক মোবাইল নম্বর ও সম্পূর্ণ ঠিকানা দিন</span></li>' +
+                '<li class="flex gap-2"><span class="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center">২</span><span>"অর্ডার কনফার্ম করুন" বাটনে ক্লিক করুন</span></li>' +
+                '<li class="flex gap-2"><span class="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center">৩</span><span>আমাদের প্রতিনিধি ফোনে কল করে অর্ডার কনফার্ম করবেন</span></li>' +
+                '<li class="flex gap-2"><span class="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center">৪</span><span>পণ্য হাতে পেয়ে ক্যাশ অন ডেলিভারিতে মূল্য পরিশোধ করুন</span></li>' +
+              '</ol>' +
+            '</div>' +
           '</form>' +
         '</div>' +
       '</div></section>';
@@ -815,10 +842,27 @@
     }
   };
 
+  // ============ SPLASH (entry logo/brand-name animation) ============
+  // Keeps the splash visible for a minimum time so the entry animation is always
+  // seen (even on a fast connection), then fades it out once real content is ready.
+  var splashStart = Date.now();
+  var MIN_SPLASH_MS = 1100;
+  function hideSplash() {
+    var el = document.getElementById('site-splash');
+    if (!el) return;
+    var elapsed = Date.now() - splashStart;
+    var wait = Math.max(0, MIN_SPLASH_MS - elapsed);
+    setTimeout(function () {
+      el.classList.add('splash-hide');
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 600);
+    }, wait);
+  }
+
   // ============ INIT ============
   axios.get('/api/public/content').then(function (r) {
     state.data = r.data;
     render();
+    hideSplash();
     // Show OTP section if enabled
     if (r.data.settings.otp_enabled === '1') {
       var otpSec = document.getElementById('otp-section');
@@ -826,5 +870,6 @@
     }
   }).catch(function () {
     document.getElementById('app').innerHTML = '<div class="min-h-screen flex items-center justify-center px-4"><div class="text-center"><i class="fas fa-triangle-exclamation text-4xl text-amber-500 mb-4"></i><p class="text-gray-600">পেজটি লোড করা যায়নি। অনুগ্রহ করে পেজ রিফ্রেশ করুন।</p></div></div>';
+    hideSplash();
   });
 })();

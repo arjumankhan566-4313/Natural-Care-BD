@@ -1,7 +1,7 @@
 // ============ Admin: Orders management ============
 import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
-import { auditLog, notify, recalcOrderProfit, refreshCustomerStats, ORDER_STATUSES, validBDPhone, normalizePhone } from '../lib/helpers'
+import { auditLog, notify, recalcOrderProfit, refreshCustomerStats, ORDER_STATUSES, validBDPhone, normalizePhone, getSettings, sendSms, fillSmsTemplate, runBackground } from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
 import { isSteadfast, courierApiReady, steadfastCreateOrder } from '../lib/steadfast'
 
@@ -141,6 +141,21 @@ r.put('/:id/status', async (c) => {
   if (order.customer_id) await refreshCustomerStats(db, order.customer_id)
   await auditLog(db, user.id, user.username, 'status_change', 'order', String(order.order_number), `${oldStatus} → ${status}${note ? ' | ' + note : ''}`)
   await notify(db, 'status_change', 'অর্ডার স্ট্যাটাস পরিবর্তন', `${order.order_number}: ${oldStatus} → ${status} (${user.username})`, `/admin#/orders/${id}`)
+
+  // Delivery-confirmation SMS — only fires if admin has configured an SMS gateway.
+  if (status === 'delivered') {
+    const s = await getSettings(db, ['sms_on_delivered_enabled', 'sms_on_delivered_template', 'brand_name'])
+    if (s.sms_on_delivered_enabled !== '0') {
+      runBackground(c, sendSms(db, {
+        phone: order.phone,
+        orderId: id,
+        eventType: 'delivered',
+        message: fillSmsTemplate(s.sms_on_delivered_template || 'প্রিয় {name}, আপনার অর্ডার #{order_number} সফলভাবে ডেলিভারি সম্পন্ন হয়েছে। ধন্যবাদ — {brand}', {
+          name: order.customer_name, order_number: order.order_number, brand: s.brand_name || 'Nature Care Bangladesh'
+        })
+      }))
+    }
+  }
 
   return c.json({ success: true, status })
 })
@@ -299,6 +314,22 @@ r.post('/:id/transfer', async (c) => {
   await auditLog(db, user.id, user.username, 'courier_transfer', 'order', order.order_number, historyNote)
   if (consignmentId) {
     await notify(db, 'courier_sent', '🚚 Steadfast-এ অর্ডার পাঠানো হয়েছে', `${order.order_number} — Tracking: ${finalTrackingId} | Consignment: ${consignmentId}`, `/admin#/orders/${id}`)
+  }
+
+  // Courier-pickup SMS to the customer — fires whenever a tracking ID exists
+  // (manual transfer or Steadfast API), only if admin has configured an SMS gateway.
+  if (finalTrackingId) {
+    const s = await getSettings(db, ['sms_on_courier_enabled', 'sms_on_courier_template', 'brand_name'])
+    if (s.sms_on_courier_enabled !== '0') {
+      runBackground(c, sendSms(db, {
+        phone: order.phone,
+        orderId: id,
+        eventType: 'courier_sent',
+        message: fillSmsTemplate(s.sms_on_courier_template || 'প্রিয় {name}, আপনার অর্ডার #{order_number} কুরিয়ারে পাঠানো হয়েছে। ট্র্যাকিং: {tracking_id}। ধন্যবাদ — {brand}', {
+          name: order.customer_name, order_number: order.order_number, tracking_id: finalTrackingId, brand: s.brand_name || 'Nature Care Bangladesh'
+        })
+      }))
+    }
   }
 
   return c.json({ success: true, message: historyNote, tracking_url: trackingUrl, tracking_id: finalTrackingId, consignment_id: consignmentId })

@@ -1,14 +1,14 @@
 // ============ Admin: Settings, Users, Audit log, Notifications, Export, Demo data ============
 import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
-import { auditLog, hashPassword, setSetting, getSettings } from '../lib/helpers'
+import { auditLog, hashPassword, setSetting, getSettings, sendSms, validBDPhone, normalizePhone } from '../lib/helpers'
 import { requireAuth, AdminUser, ROLE_PERMISSIONS } from '../lib/auth'
 
 type Env = { Bindings: Bindings; Variables: { user: AdminUser } }
 const r = new Hono<Env>()
 
 // ---------- SETTINGS ----------
-const SECRET_KEYS = ['meta_capi_token']
+const SECRET_KEYS = ['meta_capi_token', 'sms_api_key', 'sms_api_url_template']
 const settings = new Hono<Env>()
 settings.use('*', requireAuth('settings'))
 
@@ -40,6 +40,22 @@ settings.put('/', async (c) => {
 })
 
 r.route('/settings', settings)
+
+// ---------- SMS: send a test message so the admin can verify their gateway config ----------
+r.post('/sms/test', requireAuth('settings'), async (c) => {
+  const db = c.env.DB
+  const { phone } = await c.req.json<{ phone: string }>()
+  const np = normalizePhone(String(phone || ''))
+  if (!validBDPhone(np)) return c.json({ message: 'সঠিক বাংলাদেশি মোবাইল নম্বর দিন (01XXXXXXXXX)' }, 400)
+  const s = await getSettings(db, ['sms_enabled', 'sms_api_url_template', 'sms_api_key'])
+  if (s.sms_enabled !== '1' || !s.sms_api_url_template || !s.sms_api_key) {
+    return c.json({ message: 'SMS গেটওয়ে এখনো কনফিগার করা হয়নি — উপরে API URL/Key দিয়ে "SMS সিস্টেম চালু" করুন' }, 400)
+  }
+  await sendSms(db, { phone: np, eventType: 'test', message: 'এটি Nature Care Bangladesh থেকে একটি টেস্ট SMS। আপনার SMS গেটওয়ে ঠিকমতো কাজ করছে ✅' })
+  const log = await db.prepare('SELECT success, response FROM sms_logs WHERE phone = ? AND event_type = ? ORDER BY id DESC LIMIT 1').bind(np, 'test').first<any>()
+  if (log && log.success) return c.json({ success: true, message: 'টেস্ট SMS পাঠানো হয়েছে ✅' })
+  return c.json({ success: false, message: 'SMS পাঠানো ব্যর্থ হয়েছে। রেসপন্স: ' + (log ? String(log.response).slice(0, 150) : 'অজানা ত্রুটি') }, 502)
+})
 
 // ---------- ASSET UPLOAD (logo / favicon / BSTI certificate — stored in D1 as base64) ----------
 const ASSET_KEYS = ['brand_logo', 'favicon', 'bsti_certificate', 'og_image_asset']

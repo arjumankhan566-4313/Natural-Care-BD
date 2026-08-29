@@ -212,6 +212,45 @@ export async function forwardToCapi(
   }
 }
 
+// ============ SMS ============
+// Generic SMS sender that works with ANY BD SMS gateway that exposes a simple
+// GET-based "send SMS" API (the vast majority do — bulksmsbd.net, smsq, ADN
+// Telecom, Alpha SMS, Mimsms, etc). The admin pastes their gateway's endpoint
+// URL as a TEMPLATE containing the placeholders {phone}, {message}, {api_key},
+// {sender_id} — exactly as documented by their provider — into Settings →
+// SMS গেটওয়ে. This function fills those placeholders and fires the request.
+// Mirrors forwardToCapi()'s gated try/catch/fetch/DB-log pattern.
+export async function sendSms(
+  db: D1Database,
+  params: { phone: string; message: string; orderId?: number; eventType?: string }
+): Promise<void> {
+  const s = await getSettings(db, ['sms_enabled', 'sms_api_url_template', 'sms_api_key', 'sms_sender_id'])
+  // Not configured yet — silently skip. This is expected until the user adds
+  // their own SMS gateway credentials via Admin → Settings.
+  if (s.sms_enabled !== '1' || !s.sms_api_url_template || !s.sms_api_key) return
+  const phoneForSms = normalizePhone(params.phone)
+  try {
+    const url = s.sms_api_url_template
+      .replace('{phone}', encodeURIComponent(phoneForSms))
+      .replace('{message}', encodeURIComponent(params.message))
+      .replace('{api_key}', encodeURIComponent(s.sms_api_key))
+      .replace('{sender_id}', encodeURIComponent(s.sms_sender_id || ''))
+    const resp = await fetch(url, { method: 'GET' })
+    const txt = await resp.text()
+    await db.prepare('INSERT INTO sms_logs (order_id, phone, message, event_type, success, response) VALUES (?, ?, ?, ?, ?, ?)')
+      .bind(params.orderId || null, phoneForSms, params.message, params.eventType || '', resp.ok ? 1 : 0, txt.slice(0, 500)).run()
+  } catch (e: any) {
+    await db.prepare('INSERT INTO sms_logs (order_id, phone, message, event_type, success, response) VALUES (?, ?, ?, ?, 0, ?)')
+      .bind(params.orderId || null, phoneForSms, params.message, params.eventType || '', `error: ${e.message}`.slice(0, 500)).run().catch(() => {})
+  }
+}
+
+// Fill a SMS template string like "প্রিয় {name}, আপনার অর্ডার #{order_number}..."
+// with the given variables. Unknown placeholders are left as-is.
+export function fillSmsTemplate(tpl: string, vars: Record<string, string>): string {
+  return (tpl || '').replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? String(vars[k]) : m))
+}
+
 // Recalculate order profit and persist
 export async function recalcOrderProfit(db: D1Database, orderId: number) {
   const o = await db.prepare('SELECT * FROM orders WHERE id = ?').bind(orderId).first<any>()

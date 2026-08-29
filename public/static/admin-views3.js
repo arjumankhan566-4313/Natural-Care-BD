@@ -400,6 +400,43 @@
           f('duplicate_order_window_minutes', 'ডুপ্লিকেট উইন্ডো (মিনিট)', '', 'number') +
           f('max_orders_per_phone_per_day', 'দৈনিক সর্বোচ্চ অর্ডার/ফোন', '', 'number') + '</div>' +
           '<p class="text-xs text-gray-400">OTP-র জন্য SMS গেটওয়ে integration প্রয়োজন। SMS প্রোভাইডারের credential না দেওয়া পর্যন্ত OTP কোড শুধু নোটিফিকেশনে দেখা যাবে (ম্যানুয়াল ভেরিফিকেশন)।</p>') +
+        grp('<i class="fas fa-comment-sms text-emerald-600 mr-2"></i>SMS গেটওয়ে (অর্ডার ও কুরিয়ার নোটিফিকেশন)',
+          '<p class="text-xs text-gray-500 mb-3">যেকোনো বাংলাদেশি SMS গেটওয়ে (bulksmsbd.net, Alpha SMS, Mimsms, ADN Telecom ইত্যাদি) ব্যবহার করতে পারবেন। প্রোভাইডারের ডকুমেন্টেশন থেকে তাদের GET-ভিত্তিক Send SMS URL কপি করে নিচে দিন — নম্বর, মেসেজ, API key ও Sender ID-র জায়গায় <code class="bg-gray-100 px-1 rounded">{phone}</code>, <code class="bg-gray-100 px-1 rounded">{message}</code>, <code class="bg-gray-100 px-1 rounded">{api_key}</code>, <code class="bg-gray-100 px-1 rounded">{sender_id}</code> লিখে রাখুন — সিস্টেম নিজে থেকেই আসল ভ্যালু বসিয়ে দেবে।</p>' +
+          '<div class="grid md:grid-cols-2 gap-x-4">' +
+          f('sms_enabled', 'SMS সিস্টেম চালু (1 = হ্যাঁ / 0 = না)') + f('sms_provider_name', 'প্রোভাইডারের নাম', 'যেমন: BulkSMSBD') + '</div>' +
+          f('sms_api_url_template', 'Send SMS URL Template (গোপন)', 'https://bulksmsbd.net/api/smsapi?api_key={api_key}&senderid={sender_id}&number={phone}&message={message}') +
+          '<div class="grid md:grid-cols-2 gap-x-4">' +
+          f('sms_api_key', 'API Key (গোপন)', '', 'password') + f('sms_sender_id', 'Sender ID') + '</div>' +
+          '<div class="border-t border-gray-100 mt-3 pt-3">' +
+            '<div class="text-xs font-bold text-gray-500 mb-2">কোন কোন সময় SMS যাবে?</div>' +
+            '<div class="grid md:grid-cols-3 gap-x-4 mb-2">' +
+            f('sms_on_order_enabled', 'অর্ডার করার সাথে সাথে (1/0)') +
+            f('sms_on_courier_enabled', 'কুরিয়ারে পাঠানোর সময় (1/0)') +
+            f('sms_on_delivered_enabled', 'ডেলিভারি সম্পন্ন হলে (1/0)') + '</div>' +
+            field('অর্ডার-কনফার্ম SMS টেমপ্লেট', textarea('st-sms_on_order_template', st.sms_on_order_template, 2)) +
+            field('কুরিয়ার-পাঠানো SMS টেমপ্লেট', textarea('st-sms_on_courier_template', st.sms_on_courier_template, 2)) +
+            field('ডেলিভারি-সম্পন্ন SMS টেমপ্লেট', textarea('st-sms_on_delivered_template', st.sms_on_delivered_template, 2)) +
+            '<p class="text-xs text-gray-400">টেমপ্লেটে ব্যবহারযোগ্য ভ্যারিয়েবল: <code class="bg-gray-100 px-1 rounded">{name}</code>, <code class="bg-gray-100 px-1 rounded">{order_number}</code>, <code class="bg-gray-100 px-1 rounded">{total}</code>, <code class="bg-gray-100 px-1 rounded">{tracking_id}</code>, <code class="bg-gray-100 px-1 rounded">{brand}</code></p>' +
+          '</div>' +
+          '<div class="mt-3 flex gap-2">' +
+            '<input type="text" id="sms-test-phone" placeholder="টেস্ট নম্বর (01XXXXXXXXX)" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">' +
+            '<button type="button" onclick="AV.sendTestSms()" class="bg-gray-800 hover:bg-black text-white text-sm font-semibold px-4 py-2 rounded-lg"><i class="fas fa-paper-plane mr-1.5"></i>টেস্ট SMS পাঠান</button>' +
+          '</div>') +
+        grp('<i class="fas fa-font text-indigo-600 mr-2"></i>ফন্ট চেকার',
+          '<p class="text-xs text-gray-500 mb-3">Google Fonts থেকে যেকোনো ফন্টের নাম লিখে নিচে প্রিভিউ দেখতে পারবেন। পছন্দ হলে "প্রয়োগ করুন" চাপলেই পুরো সাইটে (ল্যান্ডিং পেজ ও অ্যাডমিন প্যানেলে) সেই ফন্ট বসে যাবে — কোড পরিবর্তনের প্রয়োজন নেই।</p>' +
+          '<div class="flex gap-2 mb-3">' +
+            '<input type="text" id="fc-font-name" value="' + esc(st.custom_font_family || '') + '" placeholder="যেমন: Hind Siliguri, Poppins, Noto Sans Bengali" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm">' +
+            '<button type="button" onclick="AV.previewFont()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg"><i class="fas fa-eye mr-1.5"></i>প্রিভিউ</button>' +
+          '</div>' +
+          '<div id="fc-preview-box" class="border border-gray-200 rounded-xl p-5 bg-gray-50 mb-3">' +
+            '<div id="fc-preview-text" style="font-size:26px;font-weight:700;' + (st.custom_font_family ? "font-family:'" + esc(st.custom_font_family) + "',sans-serif;" : '') + '">আপনার সাইটের নাম ও শিরোনাম এখানে এমন দেখাবে — Natural Care BD</div>' +
+            '<div id="fc-preview-text2" class="text-gray-600 mt-2" style="' + (st.custom_font_family ? "font-family:'" + esc(st.custom_font_family) + "',sans-serif;" : '') + '">এটি প্যারাগ্রাফ টেক্সটের নমুনা — ১০০% অর্গানিক ও নিরাপদ, ক্যাশ অন ডেলিভারিতে অর্ডার করুন।</div>' +
+          '</div>' +
+          '<div class="flex gap-2">' +
+            '<button type="button" onclick="AV.applyFont()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg"><i class="fas fa-check mr-1.5"></i>সারা সাইটে প্রয়োগ করুন</button>' +
+            '<button type="button" onclick="AV.resetFont()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold px-4 py-2 rounded-lg"><i class="fas fa-rotate-left mr-1.5"></i>ডিফল্ট ফন্টে ফিরুন (Hind Siliguri)</button>' +
+          '</div>' +
+          '<input type="hidden" id="st-custom_font_family" value="' + esc(st.custom_font_family || '') + '">') +
         grp('<i class="fab fa-facebook text-blue-600 mr-2"></i>Meta Pixel ও Conversions API',
           '<div class="grid md:grid-cols-2 gap-x-4">' +
           f('meta_pixel_id', 'Pixel ID') + f('meta_pixel_enabled', 'Pixel চালু (1/0)') +
@@ -482,7 +519,60 @@
     ev.preventDefault();
     var payload = {};
     document.querySelectorAll('[id^="st-"]').forEach(function (el) { payload[el.id.slice(3)] = el.value; });
-    axios.put('/api/admin/settings', payload).then(function () { toast('সেটিংস সংরক্ষিত হয়েছে'); }).catch(apiErr);
+    axios.put('/api/admin/settings', payload).then(function () {
+      toast('সেটিংস সংরক্ষিত হয়েছে');
+      if (window.applySiteFont) window.applySiteFont(payload.custom_font_family || '');
+    }).catch(apiErr);
+  };
+  AV.sendTestSms = function () {
+    var phone = v('sms-test-phone');
+    if (!phone) { toast('টেস্ট নম্বর দিন', 'error'); return; }
+    axios.post('/api/admin/sms/test', { phone: phone }).then(function (r) {
+      toast(r.data.message || 'টেস্ট SMS পাঠানো হয়েছে (রেজাল্ট দেখুন লগে)');
+    }).catch(apiErr);
+  };
+  // ---------- Font Checker ----------
+  function loadGoogleFont(family) {
+    if (!family) return;
+    var linkId = 'fc-google-font-link';
+    var old = document.getElementById(linkId);
+    if (old) old.remove();
+    var link = document.createElement('link');
+    link.id = linkId;
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(family).replace(/%20/g, '+') + ':wght@400;500;600;700;800&display=swap';
+    document.head.appendChild(link);
+  }
+  AV.previewFont = function () {
+    var name = v('fc-font-name').trim();
+    if (!name) { toast('একটি ফন্টের নাম লিখুন', 'error'); return; }
+    loadGoogleFont(name);
+    setTimeout(function () {
+      var t1 = document.getElementById('fc-preview-text'), t2 = document.getElementById('fc-preview-text2');
+      var fam = "'" + name + "', sans-serif";
+      if (t1) t1.style.fontFamily = fam;
+      if (t2) t2.style.fontFamily = fam;
+      var hidden = document.getElementById('st-custom_font_family');
+      if (hidden) hidden.value = name;
+    }, 300);
+  };
+  AV.applyFont = function () {
+    var name = v('fc-font-name').trim();
+    if (!name) { toast('একটি ফন্টের নাম লিখুন', 'error'); return; }
+    axios.put('/api/admin/settings', { custom_font_family: name }).then(function () {
+      toast('ফন্ট সারা সাইটে প্রয়োগ করা হয়েছে ✅');
+      if (window.applySiteFont) window.applySiteFont(name);
+    }).catch(apiErr);
+  };
+  AV.resetFont = function () {
+    axios.put('/api/admin/settings', { custom_font_family: '' }).then(function () {
+      toast('ডিফল্ট ফন্টে ফিরে যাওয়া হয়েছে');
+      document.getElementById('fc-font-name').value = '';
+      var t1 = document.getElementById('fc-preview-text'), t2 = document.getElementById('fc-preview-text2');
+      if (t1) t1.style.fontFamily = '';
+      if (t2) t2.style.fontFamily = '';
+      if (window.applySiteFont) window.applySiteFont('');
+    }).catch(apiErr);
   };
   AV.clearDemo = function () {
     confirmDlg('সব অর্ডার, কাস্টমার, খরচ ও ট্র্যাকিং ডেটা স্থায়ীভাবে মুছে যাবে। নিশ্চিত?', function () {

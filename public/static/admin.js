@@ -149,9 +149,44 @@
 
   function setContent(html, title) {
     var mc = document.getElementById('main-content');
-    if (mc) mc.innerHTML = html;
+    if (mc) {
+      mc.innerHTML = html;
+      mc.classList.remove('admin-view-in');
+      // restart animation
+      void mc.offsetWidth;
+      mc.classList.add('admin-view-in');
+    }
     var pt = document.getElementById('page-title');
     if (pt && title) pt.textContent = title;
+  }
+
+  // ---------- count-up animation for KPI numbers ----------
+  function animateCountUp(el, endVal, prefix, suffix, duration) {
+    if (!el) return;
+    var start = 0;
+    var end = Number(endVal) || 0;
+    var dur = duration || 900;
+    var startTime = null;
+    function step(ts) {
+      if (!startTime) startTime = ts;
+      var progress = Math.min((ts - startTime) / dur, 1);
+      var eased = 1 - Math.pow(1 - progress, 3);
+      var val = start + (end - start) * eased;
+      var display = end % 1 === 0 ? Math.round(val).toLocaleString('en-US') : val.toFixed(2);
+      el.textContent = (prefix || '') + display + (suffix || '');
+      if (progress < 1) requestAnimationFrame(step);
+      else el.textContent = (prefix || '') + end.toLocaleString('en-US', { maximumFractionDigits: 2 }) + (suffix || '');
+    }
+    requestAnimationFrame(step);
+  }
+  function runCountUps(root) {
+    var scope = root || document;
+    var els = scope.querySelectorAll('.count-up-num[data-target]');
+    els.forEach(function (el, i) {
+      setTimeout(function () {
+        animateCountUp(el, el.getAttribute('data-target'), el.getAttribute('data-prefix') || '', el.getAttribute('data-suffix') || '');
+      }, i * 60);
+    });
   }
 
   function skeleton() {
@@ -237,19 +272,34 @@
     navigate();
   }
 
+  var adminSplashStart = Date.now();
+  var MIN_ADMIN_SPLASH_MS = 900;
+  function hideAdminSplash() {
+    var el = document.getElementById('admin-splash');
+    if (!el) return;
+    var elapsed = Date.now() - adminSplashStart;
+    var wait = Math.max(0, MIN_ADMIN_SPLASH_MS - elapsed);
+    setTimeout(function () {
+      el.classList.add('splash-hide');
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 550);
+    }, wait);
+  }
+
   window.addEventListener('hashchange', navigate);
 
   // boot: check session
   axios.get('/api/auth/me').then(function (r) {
     S.user = r.data.user;
     startApp();
-  }).catch(function () { renderLogin(); });
+    hideAdminSplash();
+  }).catch(function () { renderLogin(); hideAdminSplash(); });
 
   // expose internals for part 2
   window.__ADMIN__ = {
     S: S, esc: esc, money: money, fmtDT: fmtDT, toast: toast, apiErr: apiErr, confirmDlg: confirmDlg,
     modal: modal, closeModal: closeModal, field: field, inp: inp, v: v, chk: chk,
     statusBadge: statusBadge, riskBadge: riskBadge, STATUS_BN: STATUS_BN, setContent: setContent, skeleton: skeleton,
+    animateCountUp: animateCountUp, runCountUps: runCountUps,
     registerViews: function (views) {
       viewDashboard = views.dashboard; viewOrders = views.orders; viewOrderDetail = views.orderDetail;
       viewProducts = views.products; viewCustomers = views.customers; viewCustomerDetail = views.customerDetail;

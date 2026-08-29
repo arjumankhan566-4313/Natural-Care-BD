@@ -3,7 +3,8 @@ import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
 import {
   getSettings, getSetting, generateOrderNumber, generateToken, validBDPhone, normalizePhone,
-  recalcOrderProfit, refreshCustomerStats, notify, forwardToCapi, runBackground, STATUS_LABELS_BN
+  recalcOrderProfit, refreshCustomerStats, notify, forwardToCapi, runBackground, STATUS_LABELS_BN,
+  sendSms, fillSmsTemplate
 } from '../lib/helpers'
 import { calculateRisk } from '../lib/risk'
 import { rateLimit } from '../lib/auth'
@@ -39,7 +40,7 @@ pub.get('/content', async (c) => {
     'trust_stat1_number', 'trust_stat1_label', 'trust_stat1_icon',
     'trust_stat2_number', 'trust_stat2_label', 'trust_stat2_icon',
     'trust_stat3_number', 'trust_stat3_label', 'trust_stat3_icon',
-    'trust_stat4_number', 'trust_stat4_label', 'trust_stat4_icon']
+    'trust_stat4_number', 'trust_stat4_label', 'trust_stat4_icon', 'custom_font_family']
   for (const k of allowedKeys) if (settings[k] !== undefined) publicSettings[k] = settings[k]
 
   return c.json({
@@ -174,7 +175,7 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
   if (errors.length) return c.json({ error: 'validation', messages: errors }, 400)
 
   // Server-side price calculation (never trust client)
-  const settings = await getSettings(db, ['delivery_charge_dhaka', 'delivery_charge_outside', 'free_delivery_enabled', 'free_delivery_min', 'default_packaging_cost', 'default_cod_fee_percent'])
+  const settings = await getSettings(db, ['delivery_charge_dhaka', 'delivery_charge_outside', 'free_delivery_enabled', 'free_delivery_min', 'default_packaging_cost', 'default_cod_fee_percent', 'brand_name', 'sms_on_order_enabled', 'sms_on_order_template'])
   let subtotal = 0
   let productCost = 0
   let freeDelivery = false
@@ -278,6 +279,20 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
   await recalcOrderProfit(db, orderId)
   await refreshCustomerStats(db, customer.id)
   await notify(db, 'new_order', '🔔 নতুন অর্ডার এসেছে', `${orderNumber} — ${name} (${phone}) — ৳${grandTotal}`, `/admin#/orders/${orderId}`)
+
+  // Order-confirmation SMS to the customer — fires only if the admin has configured
+  // an SMS gateway in Settings → SMS গেটওয়ে (sms_enabled='1' + template). Sent via
+  // waitUntil (not awaited) so the HTTP response to the customer is never delayed.
+  if (settings.sms_on_order_enabled !== '0') {
+    runBackground(c, sendSms(db, {
+      phone,
+      orderId,
+      eventType: 'order_placed',
+      message: fillSmsTemplate(settings.sms_on_order_template || 'প্রিয় {name}, আপনার অর্ডার #{order_number} সফলভাবে গ্রহণ করা হয়েছে। মোট: ৳{total} (COD)। ধন্যবাদ — {brand}', {
+        name, order_number: orderNumber, total: String(grandTotal), brand: settings.brand_name || 'Nature Care Bangladesh'
+      })
+    }))
+  }
 
   // Server-side Purchase event log (dedup by event_id) for CAPI
   await db.prepare(

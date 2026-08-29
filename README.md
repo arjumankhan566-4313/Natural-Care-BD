@@ -99,10 +99,11 @@
 | CRUD | `/api/admin/banners` | 🆕 Hero banner slider management |
 | GET | `/api/admin/analytics/{summary,charts,products,couriers,marketing}` | Reports |
 | GET | `/api/admin/export/{orders,customers,products,expenses,profit-loss,ad-spends}` | CSV export |
+| POST | `/api/admin/sms/test` | 🆕 SMS গেটওয়ে টেস্ট (config check + real send + `sms_logs` লগ) |
 
 ## Data Architecture
 - **Storage**: Cloudflare D1 (SQLite) — 24 tables + `assets` (ছবি বাইনারি base64 সংরক্ষণ, `key`/`mime`/`data`, serve করা হয় `GET /assets/:key` দিয়ে)
-- **Tables**: admin_users, admin_sessions, login_history, products, product_packages, customers, couriers, orders, order_items, order_status_history, courier_transfers, ad_spends, expenses, reviews (এখন `screenshot_url` কলাম সহ 🆕), faqs, benefits, page_sections, settings (এখন `trust_stats_enabled` + `trust_stat1..4_{number,label,icon}` সহ 🆕), audit_logs, notifications, tracking_events, otp_codes, incomplete_orders, hero_banners, assets
+- **Tables**: admin_users, admin_sessions, login_history, products, product_packages, customers, couriers, orders, order_items, order_status_history, courier_transfers, ad_spends, expenses, reviews (এখন `screenshot_url` কলাম সহ 🆕), faqs, benefits, page_sections, settings (এখন `trust_stats_enabled` + `trust_stat1..4_{number,label,icon}` + SMS/ফন্ট সেটিংস সহ 🆕), audit_logs, notifications, tracking_events, otp_codes, incomplete_orders, hero_banners, assets, **`sms_logs`** 🆕 (প্রতিটি SMS পাঠানোর চেষ্টার লগ — `order_id, phone, message, event_type, success, response`)
 - **Profit formula**: `(subtotal − discount + delivery) − (product + packaging + courier + COD + ad + other cost)` — auto-recalculated on every change
 - **Soft delete**: orders/products/couriers recoverable
 
@@ -110,7 +111,14 @@
 এগুলোর জন্য credential দিলেই কাজ করবে — Admin Panel-এ config screen আছে:
 - **Meta CAPI**: Settings → Meta Pixel ও Conversions API → token দিন (server-side forwarding built-in ✅)
 - **Courier APIs** (Steadfast/Pathao/RedX): Couriers → Edit → API key/secret/merchant ID। Credential ছাড়া manual transfer mode কাজ করে ✅
-- **SMS/OTP gateway**: OTP কোড generate হয় ও notification-এ দেখা যায়; SMS প্রোভাইডার credential যোগ করলে auto-send করা যাবে
+- **SMS গেটওয়ে** 🆕: Settings → "SMS গেটওয়ে" সেকশনে যেকোনো generic SMS API (URL টেমপ্লেটে `{phone}`,`{message}`,`{api_key}`,`{sender_id}` প্লেসহোল্ডার) + API key/sender ID দিয়ে চালু করুন। চালু হলে ৩টি ইভেন্টে অটো SMS যায় (প্রতিটির টেমপ্লেট আলাদা এডিটযোগ্য, {name}/{order_number}/{total}/{tracking_id}/{brand} ভ্যারিয়েবল সাপোর্ট করে):
+  1. অর্ডার প্লেস হলে (কাস্টমারকে কনফার্মেশন)
+  2. কুরিয়ারে পাঠানো হলে (ট্র্যাকিং আইডি সহ)
+  3. ডেলিভারি সম্পন্ন হলে
+  - সেটিংসেই "টেস্ট SMS পাঠান" বাটন আছে — নম্বর দিয়ে সাথে সাথে টেস্ট করা যায় এবং প্রতিটি পাঠানোর ফলাফল `sms_logs` টেবিলে সংরক্ষিত হয়।
+
+## Font Checker (নতুন 🆕)
+Settings → "ফন্ট চেকার" সেকশনে যেকোনো Google Font নাম দিয়ে সাইট-ওয়াইড ফন্ট লাইভ প্রিভিউ ও অ্যাপ্লাই করা যায় (কোনো কোড পরিবর্তনের প্রয়োজন নেই) — সাথে সাথে ল্যান্ডিং পেজে প্রতিফলিত হয়, রিসেট বাটনে ডিফল্ট Hind Siliguri-তে ফিরে যাওয়া যায়।
 
 ## Local Development
 ```bash
@@ -139,7 +147,17 @@ npm run build && npx wrangler pages deploy dist --project-name webapp
 
 ## Status
 - **Platform**: Cloudflare Pages (D1) — production-এ লাইভ ও সম্পূর্ণ কার্যকর
-- **Last Updated**: 2026-08-29 — নিচের ৪টি ফিচার প্রোডাকশনে ডিপ্লয় করা হয়েছে:
+- **Last Updated**: 2026-08-29 (নতুন রাউন্ড) — অ্যানিমেশন, SMS সিস্টেম, ফন্ট চেকার, ফর্ম ভ্যালিডেশন, অর্ডার-বাটন মেসেজ:
+  1. **এন্ট্রি স্প্ল্যাশ/লোগো অ্যানিমেশন**: ল্যান্ডিং পেজ ও অ্যাডমিন প্যানেল দুটোতেই সাইট ওপেন হওয়ার সময় লোগো/ব্র্যান্ড-নেম পপ-ইন অ্যানিমেশন (গ্র্যাডিয়েন্ট ব্যাকগ্রাউন্ড + লোডিং বার) দেখায়, মিনিমাম সময় শেষ হলে স্মুথ ফেড-আউট
+  2. **হেডলাইন টেক্সট অ্যানিমেশন**: হিরো হেডলাইন word-by-word স্ট্যাগার্ড রিভিল অ্যানিমেশন, সাবহেডলাইন ফেড-আপ, হেডার লোগো/ব্র্যান্ড-নেম এন্ট্রি অ্যানিমেশন
+  3. **অ্যাডমিন ড্যাশবোর্ড অ্যাডভান্স**: সব KPI কার্ড স্ট্যাগার্ড entrance অ্যানিমেশনে আসে + সংখ্যাগুলো (অর্ডার/রেভিনিউ/প্রফিট ইত্যাদি) count-up অ্যানিমেটেড হয়ে ০ থেকে আসল ভ্যালুতে ওঠে; প্রতিটি ভিউ পরিবর্তনে (orders/products/... সব মেনু) হালকা fade-in transition
+  4. **SMS গেটওয়ে সিস্টেম** 🆕: generic SMS API ইন্টিগ্রেশন (`sendSms()` helper, Meta CAPI-এর মতোই settings-gated) — অর্ডার প্লেসমেন্ট, কুরিয়ার ট্রান্সফার, ডেলিভারি কনফার্মেশন — এই ৩ ইভেন্টে অটো SMS (প্রতিটি on/off + কাস্টম টেমপ্লেট), সব লগ `sms_logs`-এ, Settings থেকে টেস্ট-সেন্ড সাপোর্ট
+  5. **ফন্ট চেকার** 🆕: Settings থেকে যেকোনো Google Font নাম দিয়ে লাইভ প্রিভিউ + পুরো সাইটে অ্যাপ্লাই/রিসেট
+  6. **অর্ডার ফর্ম ভ্যালিডেশন**: নাম/ফোন/ঠিকানা/জেলা/উপজেলা — সব ফিল্ডে `required` + বাংলায় কাস্টম ভ্যালিডেশন মেসেজ (খালি রাখলে/ভুল দিলে স্পষ্ট বার্তা দেখাবে)
+  7. **ফেক-অর্ডার প্রিভেনশন মেসেজ + ধাপে ধাপে নির্দেশনা**: অর্ডার বাটনের নিচে ইমোশনাল অনুরোধ (~১৩০ টাকা কুরিয়ার খরচের কথা উল্লেখ করে, কড়া ভাষায় না) এবং ৪-ধাপের স্পষ্ট অর্ডারিং নির্দেশিকা
+  8. **ফোন নম্বর মাস্ট**: সঠিক বাংলাদেশি মোবাইল নম্বর (`01XXXXXXXXX`) ছাড়া অর্ডার সার্ভার-সাইডে reject হয় (আগে থেকেই ছিল, এই রাউন্ডে পুনঃনিশ্চিত ও টেস্ট করা হয়েছে)
+
+- **আগের আপডেট (2026-08-29, পূর্ববর্তী রাউন্ড)**:
   1. **ইমেজ অপ্টিমাইজেশন**: সব প্রোডাক্ট/ব্যানার/গ্যালারি ছবি (৭টি external ছবি খুঁজে বের করে) কম্প্রেস করে D1 `assets`-এ আপলোড, ফলে পেজ লোড অনেক দ্রুত
   2. **রিভিউ স্ক্রিনশট**: অ্যাডমিন থেকে আপলোড, ল্যান্ডিং পেজে জুম-এবল ছবি হিসেবে প্রদর্শিত
   3. **ট্রাস্ট স্ট্যাটস সেকশন**: বাস্তব সংখ্যা — "১০০০+ সন্তুষ্ট কাস্টমার", "৫+ বছর বিশ্বাসের সাথে সেবা", "ক্যাশ অন ডেলিভারি", "১০০% প্রাকৃতিক উপাদান"

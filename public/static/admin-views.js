@@ -10,10 +10,20 @@
   var charts = {};
   function destroyCharts() { Object.values(charts).forEach(function (c) { try { c.destroy(); } catch (e) {} }); charts = {}; }
 
-  function card(label, value, icon, color) {
-    return '<div class="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3">' +
+  var cardIdx = 0;
+  function card(label, value, icon, color, opts) {
+    opts = opts || {};
+    var idx = cardIdx++;
+    var delay = (idx * 0.05).toFixed(2);
+    var valHtml;
+    if (opts.raw != null && !isNaN(opts.raw)) {
+      valHtml = '<span class="count-up-num" data-target="' + opts.raw + '" data-prefix="' + esc(opts.prefix || '') + '" data-suffix="' + esc(opts.suffix || '') + '">' + (opts.prefix || '') + '0' + (opts.suffix || '') + '</span>';
+    } else {
+      valHtml = value;
+    }
+    return '<div class="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3 kpi-card-in" style="animation-delay:' + delay + 's">' +
       '<div class="w-11 h-11 rounded-xl ' + (color || 'bg-emerald-100 text-emerald-600') + ' flex items-center justify-center shrink-0"><i class="fas ' + icon + '"></i></div>' +
-      '<div class="min-w-0"><div class="text-xs text-gray-500 truncate">' + label + '</div><div class="font-bold text-gray-900 text-lg truncate">' + value + '</div></div></div>';
+      '<div class="min-w-0"><div class="text-xs text-gray-500 truncate">' + label + '</div><div class="font-bold text-gray-900 text-lg truncate">' + valHtml + '</div></div></div>';
   }
 
   function rangeSelector(current, onchangeFn) {
@@ -33,40 +43,43 @@
     ]).then(function (rs) {
       var d = rs[0].data, ch = rs[1].data, ords = rs[2].data.orders;
       var sc = d.status_counts || {};
+      cardIdx = 0;
       setContent(
         '<div class="flex items-center justify-between mb-5 flex-wrap gap-3">' +
           '<div><div class="text-sm text-gray-500">' + d.range.from + (d.range.from !== d.range.to ? ' → ' + d.range.to : '') + ' | $1 = ৳' + d.usd_rate + '</div></div>' +
           rangeSelector(dashRange, 'AV.dashRange(this.value)') +
         '</div>' +
         '<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">' +
-          card('মোট অর্ডার', d.total_orders, 'fa-cart-shopping', 'bg-blue-100 text-blue-600') +
-          card('রেভিনিউ (ডেলিভারড)', money(d.revenue), 'fa-sack-dollar', 'bg-emerald-100 text-emerald-600') +
-          card('নেট প্রফিট', money(d.net_profit), 'fa-arrow-trend-up', d.net_profit >= 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600') +
-          card('লস', money(d.loss), 'fa-arrow-trend-down', 'bg-red-100 text-red-500') +
+          card('মোট অর্ডার', d.total_orders, 'fa-cart-shopping', 'bg-blue-100 text-blue-600', { raw: d.total_orders }) +
+          card('রেভিনিউ (ডেলিভারড)', money(d.revenue), 'fa-sack-dollar', 'bg-emerald-100 text-emerald-600', { raw: d.revenue, prefix: '৳' }) +
+          card('নেট প্রফিট', money(d.net_profit), 'fa-arrow-trend-up', d.net_profit >= 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600', { raw: d.net_profit, prefix: '৳' }) +
+          card('লস', money(d.loss), 'fa-arrow-trend-down', 'bg-red-100 text-red-500', { raw: d.loss, prefix: '৳' }) +
         '</div>' +
         '<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">' +
-          card('অ্যাড খরচ', money(d.ad_spend_bdt) + (d.ad_spend_usd ? ' ($' + d.ad_spend_usd + ')' : ''), 'fa-bullhorn', 'bg-purple-100 text-purple-600') +
-          card('কুরিয়ার খরচ', money(d.courier_cost), 'fa-truck', 'bg-cyan-100 text-cyan-600') +
-          card('প্রোডাক্ট খরচ', money(d.product_cost), 'fa-box', 'bg-amber-100 text-amber-600') +
-          card('অন্যান্য খরচ', money(d.other_expenses), 'fa-receipt', 'bg-gray-100 text-gray-600') +
+          card('অ্যাড খরচ', money(d.ad_spend_bdt) + (d.ad_spend_usd ? ' ($' + d.ad_spend_usd + ')' : ''), 'fa-bullhorn', 'bg-purple-100 text-purple-600', { raw: d.ad_spend_bdt, prefix: '৳' }) +
+          card('কুরিয়ার খরচ', money(d.courier_cost), 'fa-truck', 'bg-cyan-100 text-cyan-600', { raw: d.courier_cost, prefix: '৳' }) +
+          card('প্রোডাক্ট খরচ', money(d.product_cost), 'fa-box', 'bg-amber-100 text-amber-600', { raw: d.product_cost, prefix: '৳' }) +
+          card('অন্যান্য খরচ', money(d.other_expenses), 'fa-receipt', 'bg-gray-100 text-gray-600', { raw: d.other_expenses, prefix: '৳' }) +
         '</div>' +
         '<div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">' +
-          card('পেন্ডিং', d.pending, 'fa-clock', 'bg-amber-100 text-amber-600') +
-          card('ডেলিভারড', d.delivered, 'fa-circle-check', 'bg-green-100 text-green-600') +
-          card('বাতিল', d.cancelled, 'fa-circle-xmark', 'bg-red-100 text-red-500') +
-          card('রিটার্নড', d.returned, 'fa-rotate-left', 'bg-orange-100 text-orange-500') +
-          card('মার্জিন', d.profit_margin + '%', 'fa-percent', 'bg-indigo-100 text-indigo-600') +
-          card('ROI', d.roi + '%', 'fa-chart-pie', 'bg-pink-100 text-pink-600') +
+          card('পেন্ডিং', d.pending, 'fa-clock', 'bg-amber-100 text-amber-600', { raw: d.pending }) +
+          card('ডেলিভারড', d.delivered, 'fa-circle-check', 'bg-green-100 text-green-600', { raw: d.delivered }) +
+          card('বাতিল', d.cancelled, 'fa-circle-xmark', 'bg-red-100 text-red-500', { raw: d.cancelled }) +
+          card('রিটার্নড', d.returned, 'fa-rotate-left', 'bg-orange-100 text-orange-500', { raw: d.returned }) +
+          card('মার্জিন', d.profit_margin + '%', 'fa-percent', 'bg-indigo-100 text-indigo-600', { raw: d.profit_margin, suffix: '%' }) +
+          card('ROI', d.roi + '%', 'fa-chart-pie', 'bg-pink-100 text-pink-600', { raw: d.roi, suffix: '%' }) +
         '</div>' +
         '<div class="grid lg:grid-cols-2 gap-5 mb-6">' +
-          '<div class="bg-white rounded-2xl p-5 shadow-sm"><h3 class="font-bold mb-4">রেভিনিউ ও প্রফিট</h3><canvas id="ch-rev" height="220"></canvas></div>' +
-          '<div class="bg-white rounded-2xl p-5 shadow-sm"><h3 class="font-bold mb-4">অর্ডার ও অ্যাড খরচ</h3><canvas id="ch-ord" height="220"></canvas></div>' +
+          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.35s"><h3 class="font-bold mb-4">রেভিনিউ ও প্রফিট</h3><canvas id="ch-rev" height="220"></canvas></div>' +
+          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.42s"><h3 class="font-bold mb-4">অর্ডার ও অ্যাড খরচ</h3><canvas id="ch-ord" height="220"></canvas></div>' +
         '</div>' +
-        '<div class="bg-white rounded-2xl shadow-sm overflow-hidden">' +
+        '<div class="bg-white rounded-2xl shadow-sm overflow-hidden kpi-card-in" style="animation-delay:.5s">' +
           '<div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center"><h3 class="font-bold">সাম্প্রতিক অর্ডার</h3><a href="#/orders" class="text-sm text-emerald-600 font-semibold">সব দেখুন →</a></div>' +
           orderTable(ords) +
         '</div>',
         'ড্যাশবোর্ড');
+
+      if (H.runCountUps) H.runCountUps();
 
       var days = (ch.daily || []).map(function (x) { return x.day.slice(5); });
       var adMap = {};
