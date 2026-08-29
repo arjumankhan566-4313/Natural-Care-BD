@@ -1,7 +1,7 @@
 // ============ Admin: Incomplete (abandoned) orders + Pixel setup ============
 import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
-import { auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone, forwardToCapi } from '../lib/helpers'
+import { auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone, forwardToCapi, runBackground } from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
 
 type Env = { Bindings: Bindings; Variables: { user: AdminUser } }
@@ -162,6 +162,8 @@ inc.post('/:id/convert', async (c) => {
     ua: io.user_agent || '',
     fbclid: io.fbclid || '',
     fbclidTs: '',
+    customerName: io.customer_name || '',
+    customerPhone: normalizedPhone,
     customData: { value: grandTotal, currency: 'BDT', content_ids: [String(product.id)], order_number: orderNumber }
   })
 

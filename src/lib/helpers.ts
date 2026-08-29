@@ -1,4 +1,6 @@
 // ============ Shared helpers ============
+import type { Context } from 'hono'
+
 export type Bindings = {
   DB: D1Database
 }
@@ -31,6 +33,46 @@ export function normalizePhone(phone: string): string {
   if (p.startsWith('+880')) p = '0' + p.slice(4)
   else if (p.startsWith('880')) p = '0' + p.slice(3)
   return p
+}
+
+// Meta (Facebook) requires phone numbers WITH the country code, digits only,
+// no leading zero after the country code — e.g. "01711000111" -> "8801711000111".
+// This is the OPPOSITE of normalizePhone() above (which is for local BD storage/
+// display in the 01XXXXXXXXX format). Never send the local-format number to Meta.
+export function toMetaPhone(phone: string): string {
+  let p = (phone || '').replace(/[^\d+]/g, '')
+  if (p.startsWith('+')) p = p.slice(1)
+  if (p.startsWith('880')) p = p.slice(3)
+  else if (p.startsWith('00880')) p = p.slice(5)
+  p = p.replace(/^0+/, '') // strip local leading 0 (and any leftover 0s)
+  return p ? `880${p}` : ''
+}
+
+// Plain SHA-256 hex digest (no salt) — used for Meta CAPI's required hashing of
+// user_data fields (ph, fn, ...). Per Meta spec: https://developers.facebook.com/
+// documentation/ads-commerce/conversions-api/parameters/customer-information-parameters
+export async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input)
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// Normalize + hash a first name for Meta's `fn` field: lowercase letters only,
+// per spec ("Using Roman alphabet a-z characters is recommended. Lowercase only
+// with no punctuation."). We keep UTF-8 (e.g. Bengali) characters as-is since
+// Meta explicitly supports UTF-8-encoded non-Roman text for fn/ln.
+export async function hashMetaFirstName(fullName: string): Promise<string | undefined> {
+  const first = (fullName || '').trim().split(/\s+/)[0]
+  if (!first) return undefined
+  return sha256Hex(first.toLowerCase())
+}
+
+// Normalize + hash a BD phone (any input format) for Meta's `ph` field:
+// digits only, WITH country code (880), no leading zero.
+export async function hashMetaPhone(phone: string): Promise<string | undefined> {
+  const p = toMetaPhone(phone)
+  if (!p) return undefined
+  return sha256Hex(p)
 }
 
 export async function getSetting(db: D1Database, key: string): Promise<string> {
@@ -68,6 +110,22 @@ export async function notify(db: D1Database, type: string, title: string, messag
   await db.prepare('INSERT INTO notifications (type, title, message, link) VALUES (?, ?, ?, ?)').bind(type, title, message, link).run()
 }
 
+// Run a task (e.g. the CAPI network call) without blocking the HTTP response.
+// Uses Cloudflare's executionCtx.waitUntil so the request returns to the customer
+// immediately (landing page needs to feel instant) while the worker stays alive
+// in the background until the CAPI call to Meta actually completes. Falls back to
+// a plain (non-blocking) promise if executionCtx isn't available for some reason.
+export function runBackground(c: Context<any>, task: Promise<any>) {
+  const safe = task.catch(() => {})
+  try {
+    c.executionCtx.waitUntil(safe)
+  } catch {
+    // no executionCtx in this environment — task still runs, just not guaranteed
+    // to finish before the isolate is recycled. This should not happen on
+    // Cloudflare Pages/Workers in production or in `wrangler pages dev`.
+  }
+}
+
 // Forward a tracking event to Meta Conversions API directly from the server.
 // Used both for the guaranteed server-side Purchase send (at order-creation time,
 // independent of whether the customer's browser ever calls /api/public/events)
@@ -82,10 +140,12 @@ export async function forwardToCapi(
     ua?: string
     fbclid?: string
     fbclidTs?: string
+    customerName?: string
+    customerPhone?: string
     customData?: Record<string, any>
   }
 ): Promise<void> {
-  const s = await getSettings(db, ['meta_capi_enabled', 'meta_capi_token', 'meta_pixel_id', 'meta_test_event_code'])
+  const s = await getSettings(db, ['meta_capi_enabled', 'meta_capi_token', 'meta_pixel_id', 'meta_test_event_code', 'meta_advanced_matching'])
   if (s.meta_capi_enabled !== '1' || !s.meta_capi_token || !s.meta_pixel_id) return
   try {
     const userData: Record<string, any> = {
@@ -96,6 +156,20 @@ export async function forwardToCapi(
     // Prefer the actual click-time captured client-side (fbclidTs); fall back to "now"
     // only if it's missing (e.g. old sessions created before this field existed).
     if (params.fbclid) userData.fbc = `fb.1.${params.fbclidTs || Math.floor(Date.now() / 1000)}.${params.fbclid}`
+    // Advanced Matching (ph/fn) — required by Meta ads booster for higher match quality.
+    // Both fields must be SHA-256 hashed per Meta CAPI spec (unlike the browser Pixel,
+    // which auto-hashes plain text passed to fbq('init', ..., {ph, fn})).
+    // ph must include the 880 country code, digits only, no leading zero.
+    if (s.meta_advanced_matching === '1') {
+      if (params.customerPhone) {
+        const hashedPh = await hashMetaPhone(params.customerPhone)
+        if (hashedPh) userData.ph = hashedPh
+      }
+      if (params.customerName) {
+        const hashedFn = await hashMetaFirstName(params.customerName)
+        if (hashedFn) userData.fn = hashedFn
+      }
+    }
     const payload: any = {
       data: [{
         event_name: params.eventName,

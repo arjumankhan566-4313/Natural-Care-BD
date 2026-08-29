@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
 import {
   getSettings, getSetting, generateOrderNumber, generateToken, validBDPhone, normalizePhone,
-  recalcOrderProfit, refreshCustomerStats, notify, forwardToCapi, STATUS_LABELS_BN
+  recalcOrderProfit, refreshCustomerStats, notify, forwardToCapi, runBackground, STATUS_LABELS_BN
 } from '../lib/helpers'
 import { calculateRisk } from '../lib/risk'
 import { rateLimit } from '../lib/auth'
@@ -32,7 +32,7 @@ pub.get('/content', async (c) => {
     'hero_headline', 'hero_subheadline', 'offer_title', 'offer_description',
     'countdown_enabled', 'countdown_end', 'countdown_fallback_text',
     'delivery_charge_dhaka', 'delivery_charge_outside', 'free_delivery_enabled', 'free_delivery_min',
-    'otp_enabled', 'meta_pixel_id', 'meta_pixel_enabled', 'meta_events_enabled', 'ga_id', 'gtm_id', 'tiktok_pixel_id', 'banner_autoplay_seconds',
+    'otp_enabled', 'meta_pixel_id', 'meta_pixel_enabled', 'meta_events_enabled', 'meta_advanced_matching', 'ga_id', 'gtm_id', 'tiktok_pixel_id', 'banner_autoplay_seconds',
     'bsti_enabled', 'bsti_title', 'bsti_description', 'bsti_certificate_image', 'favicon_url',
     'seo_title', 'seo_description', 'seo_keywords', 'og_image', 'canonical_url', 'robots', 'fb_share_title', 'fb_share_description',
     'trust_stats_enabled', 'trust_stats_title',
@@ -236,7 +236,12 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
   if (customer.list_status === 'blacklist') status = 'fake'
 
   const orderNumber = generateOrderNumber()
-  const eventId = generateToken(16)
+  // Reuse the client-generated event_id when provided (landing page now fires the Purchase
+  // pixel immediately on submit, before this request even completes — see landing.js). This
+  // guarantees the browser Pixel event and this server's CAPI event carry the EXACT same
+  // event_id, which is required for Meta to de-duplicate the two signals into one conversion.
+  // Falls back to a fresh server-generated id for any caller that doesn't supply one.
+  const eventId = (body.event_id ? String(body.event_id) : '').slice(0, 64) || generateToken(16)
   const packagingCost = Number(settings.default_packaging_cost || 0)
   const codCharge = Math.round(grandTotal * Number(settings.default_cod_fee_percent || 0) / 100)
 
@@ -281,19 +286,24 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
   ).bind(eventId, JSON.stringify({ order_number: orderNumber, value: grandTotal, currency: 'BDT' }), body.source_url || '', ip, ua, body.fbclid || '').run()
 
   // Guaranteed server-side Purchase → Meta CAPI. This does NOT depend on the customer's
-  // browser calling /api/public/events — it fires immediately here so an ad-blocker, iOS
-  // tracking prevention, or the customer closing the tab right after ordering can never
-  // cause a lost Purchase event. The browser-side fbq('track','Purchase', ...) call uses the
-  // same event_id (returned below), so Meta automatically de-duplicates the two signals.
-  await forwardToCapi(db, {
+  // browser calling /api/public/events — it fires here so an ad-blocker, iOS tracking
+  // prevention, or the customer closing the tab right after ordering can never cause a
+  // lost Purchase event. The browser already fired its own fbq('track','Purchase', ...)
+  // with this exact event_id BEFORE this request was even sent (see landing.js submitOrder),
+  // so Meta automatically de-duplicates the two signals into a single conversion.
+  // Sent via waitUntil (not awaited) so the HTTP response is not delayed by the network
+  // round-trip to Meta's servers.
+  runBackground(c, forwardToCapi(db, {
     eventName: 'Purchase',
     eventId,
     sourceUrl: body.source_url || '',
     ip, ua,
     fbclid: body.fbclid || '',
     fbclidTs: body.fbclid_ts || '',
+    customerName: name,
+    customerPhone: phone,
     customData: { value: grandTotal, currency: 'BDT', content_ids: resolvedItems.map(i => String(i.product_id)), order_number: orderNumber }
-  })
+  }))
 
   // Mark matching incomplete order as converted (order was completed)
   if (body.session_id) {
@@ -373,11 +383,12 @@ pub.post('/events', rateLimit(60, 60_000), async (c) => {
   // redundant duplicate fetch to Meta since Meta already de-dupes on event_id anyway, but we
   // skip it to save the extra API call.
   if (eventName !== 'Purchase') {
-    await forwardToCapi(db, {
+    runBackground(c, forwardToCapi(db, {
       eventName, eventId,
       sourceUrl: body.source_url || '', ip, ua, fbclid: body.fbclid || '', fbclidTs: body.fbclid_ts || '',
+      customerName: body.customer_name || '', customerPhone: body.customer_phone || '',
       customData: body.data || {}
-    })
+    }))
   }
   return c.json({ success: true, event_id: eventId })
 })

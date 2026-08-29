@@ -48,7 +48,7 @@
   function genEventId() {
     return 'ev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
   }
-  function track(eventName, data, eventId) {
+  function track(eventName, data, eventId, userData) {
     var eid = eventId || genEventId();
     var enabled = state.data && state.data.settings.meta_pixel_enabled === '1';
     var events = ((state.data && state.data.settings.meta_events_enabled) || '').split(',');
@@ -57,9 +57,46 @@
     }
     axios.post('/api/public/events', {
       event_name: eventName, event_id: eid, data: data || {},
-      source_url: location.href, fbclid: state.utm.fbclid || '', fbclid_ts: state.utm.fbclid_ts || ''
+      source_url: location.href, fbclid: state.utm.fbclid || '', fbclid_ts: state.utm.fbclid_ts || '',
+      // Optional customer name/phone -> forwarded to Meta CAPI (hashed server-side) for
+      // Advanced Matching on non-Purchase events (e.g. Lead) once the customer has typed them.
+      customer_name: (userData && userData.name) || '', customer_phone: (userData && userData.phone) || ''
     }).catch(function () {});
     return eid;
+  }
+
+  // Convert any BD phone format to Meta's required format: digits only, WITH
+  // the 880 country code, no leading zero (e.g. "01711000111" -> "8801711000111").
+  // Mirrors the server-side toMetaPhone() in src/lib/helpers.ts — must stay in sync.
+  function toMetaPhone(phone) {
+    var p = (phone || '').replace(/[^\d+]/g, '');
+    if (p.charAt(0) === '+') p = p.slice(1);
+    if (p.indexOf('880') === 0) p = p.slice(3);
+    else if (p.indexOf('00880') === 0) p = p.slice(5);
+    p = p.replace(/^0+/, '');
+    return p ? '880' + p : '';
+  }
+
+  // Facebook Ads "booster" requirement #1: send hashed name (fn) + phone (ph, with
+  // 880 country code) to Meta via the browser Pixel's Advanced Matching, as soon as
+  // the customer provides them (right before the Purchase pixel fires on submit).
+  // We pass PLAIN text here — the Pixel JS SDK hashes fn/ph with SHA-256 automatically
+  // on its own (see Meta's Advanced Matching docs); only the server-side CAPI call
+  // needs us to pre-hash manually (done in helpers.ts / forwardToCapi()).
+  function applyAdvancedMatching(name, phone) {
+    var s = state.data && state.data.settings;
+    if (!s || s.meta_advanced_matching !== '1' || !window.fbq || !s.meta_pixel_id) return;
+    var pixelId = String(s.meta_pixel_id).replace(/[^0-9]/g, '');
+    var firstName = (name || '').trim().split(/\s+/)[0] || '';
+    var metaPhone = toMetaPhone(phone);
+    var match = {};
+    if (firstName) match.fn = firstName.toLowerCase();
+    if (metaPhone) match.ph = metaPhone;
+    if (!match.fn && !match.ph) return;
+    // Re-calling fbq('init', ...) with new Advanced Matching params is Meta's documented
+    // way to attach customer data after the initial (data-less) init on page load —
+    // every event tracked after this call carries fn/ph automatically.
+    try { window.fbq('init', pixelId, match); } catch (e) {}
   }
 
   function money(n) { return '৳' + Number(n || 0).toLocaleString('bn-BD'); }
@@ -639,13 +676,15 @@
       return;
     }
 
+    var customerName = document.getElementById('f-name').value;
+
     state.submitting = true;
     var btn = document.getElementById('submit-btn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner mr-2"></span>অর্ডার প্রসেস হচ্ছে...';
 
     var payload = {
-      customer_name: document.getElementById('f-name').value,
+      customer_name: customerName,
       phone: phone,
       alt_phone: document.getElementById('f-alt-phone').value,
       address: document.getElementById('f-address').value,
@@ -659,12 +698,24 @@
     };
     Object.assign(payload, state.utm);
 
-    track('Lead', { content_name: p.name });
+    // Booster requirement #1: attach hashed name/phone (Advanced Matching) to the
+    // Pixel BEFORE firing Purchase, so this exact event carries fn/ph.
+    applyAdvancedMatching(customerName, phone);
+
+    track('Lead', { content_name: p.name }, null, { name: customerName, phone: phone });
+
+    // Booster requirement #3 + #4: generate the event_id HERE (client-side) and fire
+    // the Purchase pixel immediately — the instant the form is submitted — instead of
+    // waiting for the backend's order-creation + CAPI round trip to finish. The same
+    // event_id is sent to the backend below so its CAPI call reports the identical
+    // event_id, letting Meta de-duplicate the browser Pixel and server CAPI signals
+    // into a single conversion.
+    var pr = getPricing();
+    var purchaseEventId = track('Purchase', { value: pr.total, currency: 'BDT', content_ids: [String(p.id)] });
+    payload.event_id = purchaseEventId;
 
     axios.post('/api/public/orders', payload).then(function (r) {
       var o = r.data.order;
-      // Purchase event with server-generated event_id for dedup
-      track('Purchase', { value: o.grand_total, currency: 'BDT', content_ids: [String(p.id)] }, o.event_id);
       showConfirmation(o);
     }).catch(function (e) {
       state.submitting = false;

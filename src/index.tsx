@@ -14,7 +14,7 @@ import adminIncomplete from './routes/admin-incomplete'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Cache-busting version for static JS/CSS — bump on every deploy of frontend assets
-const ASSET_V = '8'
+const ASSET_V = '9'
 
 // CORS for API routes
 app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }))
