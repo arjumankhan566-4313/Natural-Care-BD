@@ -1,7 +1,7 @@
 // ============ Admin: Incomplete (abandoned) orders + Pixel setup ============
 import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
-import { auditLog, getSettings, setSetting, generateToken } from '../lib/helpers'
+import { auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone } from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
 
 type Env = { Bindings: Bindings; Variables: { user: AdminUser } }
@@ -52,11 +52,23 @@ inc.put('/:id', async (c) => {
   const existing = await db.prepare('SELECT id FROM incomplete_orders WHERE id = ?').bind(id).first()
   if (!existing) return c.json({ error: 'not_found' }, 404)
   if (b.status && !allowed.includes(b.status)) return c.json({ error: 'validation', message: 'ভুল স্ট্যাটাস' }, 400)
+  if (b.phone !== undefined && b.phone && !validBDPhone(b.phone)) {
+    return c.json({ error: 'validation', message: 'সঠিক বাংলাদেশি মোবাইল নম্বর দিন (01XXXXXXXXX)' }, 400)
+  }
+  if (b.alt_phone !== undefined && b.alt_phone && !validBDPhone(b.alt_phone)) {
+    return c.json({ error: 'validation', message: 'বিকল্প ফোন নম্বরটি সঠিক নয়' }, 400)
+  }
 
   const sets: string[] = ['updated_at = CURRENT_TIMESTAMP']
   const binds: any[] = []
   if (b.status) { sets.push('status = ?'); binds.push(b.status) }
   if (b.admin_note !== undefined) { sets.push('admin_note = ?'); binds.push(String(b.admin_note).slice(0, 500)) }
+  if (b.customer_name !== undefined) { sets.push('customer_name = ?'); binds.push(String(b.customer_name).trim().slice(0, 100)) }
+  if (b.phone !== undefined) { sets.push('phone = ?'); binds.push(normalizePhone(b.phone)) }
+  if (b.alt_phone !== undefined) { sets.push('alt_phone = ?'); binds.push(b.alt_phone ? normalizePhone(b.alt_phone) : '') }
+  if (b.address !== undefined) { sets.push('address = ?'); binds.push(String(b.address).trim().slice(0, 500)) }
+  if (b.district !== undefined) { sets.push('district = ?'); binds.push(String(b.district).trim().slice(0, 100)) }
+  if (b.upazila !== undefined) { sets.push('upazila = ?'); binds.push(String(b.upazila).trim().slice(0, 100)) }
   await db.prepare(`UPDATE incomplete_orders SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, id).run()
   await auditLog(db, user.id, user.username, 'update', 'incomplete_order', String(id), `Incomplete order updated: ${b.status || 'note'}`)
   return c.json({ success: true })
@@ -82,6 +94,10 @@ inc.post('/:id/convert', async (c) => {
   if (!io.phone || !io.customer_name || !io.product_id) {
     return c.json({ error: 'insufficient_data', message: 'কনভার্ট করতে নাম, ফোন ও প্রোডাক্ট থাকা আবশ্যক। বাকি তথ্য কাস্টমারের থেকে নিয়ে ম্যানুয়ালি অর্ডার করুন।' }, 400)
   }
+  const normalizedPhone = normalizePhone(io.phone)
+  if (!validBDPhone(normalizedPhone)) {
+    return c.json({ error: 'invalid_phone', message: `ফোন নম্বরটি সঠিক ফরম্যাটে নয় (${io.phone}) — কনভার্ট করার আগে "ইনকমপ্লিট অর্ডার" ডিটেইলে ঢুকে সঠিক নম্বর (01XXXXXXXXX) লিখে সংরক্ষণ করুন, তারপর আবার কনভার্ট করুন।` }, 400)
+  }
 
   const product = await db.prepare('SELECT * FROM products WHERE id = ? AND is_deleted = 0').bind(io.product_id).first<any>()
   if (!product) return c.json({ error: 'product_missing', message: 'প্রোডাক্টটি আর নেই' }, 400)
@@ -96,11 +112,13 @@ inc.post('/:id/convert', async (c) => {
   const deliveryCharge = io.delivery_charge || (isDhaka ? Number(settings.delivery_charge_dhaka || 70) : Number(settings.delivery_charge_outside || 130))
   const grandTotal = subtotal + deliveryCharge
 
+  const normalizedAltPhone = io.alt_phone ? normalizePhone(io.alt_phone) : ''
+
   // Upsert customer
-  let customer = await db.prepare('SELECT id FROM customers WHERE phone = ?').bind(io.phone).first<any>()
+  let customer = await db.prepare('SELECT id FROM customers WHERE phone = ?').bind(normalizedPhone).first<any>()
   if (!customer) {
     const cr = await db.prepare('INSERT INTO customers (name, phone, alt_phone, address, district, upazila) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(io.customer_name, io.phone, io.alt_phone || '', io.address || '', io.district || '', io.upazila || '').run()
+      .bind(io.customer_name, normalizedPhone, normalizedAltPhone, io.address || '', io.district || '', io.upazila || '').run()
     customer = { id: cr.meta.last_row_id }
   }
 
@@ -111,7 +129,7 @@ inc.post('/:id/convert', async (c) => {
       product_cost, utm_source, utm_medium, utm_campaign, fbclid, campaign_id, adset_id, ad_id, order_source, ip_address, event_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'confirmed', 0, 'low', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'incomplete_recovery', ?, ?)
   `).bind(
-    orderNumber, customer.id, io.customer_name, io.phone, io.alt_phone || '', io.address || '', io.district || '', io.upazila || '',
+    orderNumber, customer.id, io.customer_name, normalizedPhone, normalizedAltPhone, io.address || '', io.district || '', io.upazila || '',
     io.order_note || '', subtotal, deliveryCharge, grandTotal,
     JSON.stringify(['Converted from incomplete order by admin']),
     product.product_cost * qty,

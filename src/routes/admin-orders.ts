@@ -1,7 +1,7 @@
 // ============ Admin: Orders management ============
 import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
-import { auditLog, notify, recalcOrderProfit, refreshCustomerStats, ORDER_STATUSES } from '../lib/helpers'
+import { auditLog, notify, recalcOrderProfit, refreshCustomerStats, ORDER_STATUSES, validBDPhone, normalizePhone } from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
 import { isSteadfast, courierApiReady, steadfastCreateOrder } from '../lib/steadfast'
 
@@ -157,6 +157,22 @@ r.put('/:id', async (c) => {
   const allowed = ['customer_name', 'phone', 'alt_phone', 'address', 'district', 'upazila', 'area', 'order_note', 'admin_notes',
     'discount', 'delivery_charge', 'product_cost', 'packaging_cost', 'courier_cost', 'cod_charge', 'ad_cost', 'other_cost',
     'paid_amount', 'tracking_id', 'tracking_url']
+
+  // Validate + normalize phone numbers before saving (prevents malformed numbers reaching courier APIs)
+  if (body.phone !== undefined) {
+    const np = normalizePhone(String(body.phone))
+    if (!validBDPhone(np)) return c.json({ error: 'validation', message: 'সঠিক বাংলাদেশি মোবাইল নম্বর দিন (01XXXXXXXXX)' }, 400)
+    body.phone = np
+  }
+  if (body.alt_phone !== undefined && body.alt_phone) {
+    const nap = normalizePhone(String(body.alt_phone))
+    if (!validBDPhone(nap)) return c.json({ error: 'validation', message: 'বিকল্প ফোন নম্বরটি সঠিক নয়' }, 400)
+    body.alt_phone = nap
+  }
+  if (body.customer_name !== undefined && String(body.customer_name).trim().length < 2) {
+    return c.json({ error: 'validation', message: 'নাম দিন (কমপক্ষে ২ অক্ষর)' }, 400)
+  }
+
   const sets: string[] = []
   const params: any[] = []
   const changes: string[] = []
@@ -178,6 +194,20 @@ r.put('/:id', async (c) => {
 
   await db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).bind(...params, id).run()
   await recalcOrderProfit(db, id)
+  // Keep linked customer record in sync (name/phone/address edits)
+  if (order.customer_id) {
+    const custSets: string[] = []
+    const custParams: any[] = []
+    if (body.customer_name !== undefined) { custSets.push('name = ?'); custParams.push(body.customer_name) }
+    if (body.phone !== undefined) { custSets.push('phone = ?'); custParams.push(body.phone) }
+    if (body.alt_phone !== undefined) { custSets.push('alt_phone = ?'); custParams.push(body.alt_phone) }
+    if (body.address !== undefined) { custSets.push('address = ?'); custParams.push(body.address) }
+    if (body.district !== undefined) { custSets.push('district = ?'); custParams.push(body.district) }
+    if (body.upazila !== undefined) { custSets.push('upazila = ?'); custParams.push(body.upazila) }
+    if (custSets.length) {
+      await db.prepare(`UPDATE customers SET ${custSets.join(', ')} WHERE id = ?`).bind(...custParams, order.customer_id).run()
+    }
+  }
   if (changes.length) await auditLog(db, user.id, user.username, 'update', 'order', order.order_number, changes.join('; '))
 
   const updated = await db.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first<any>()

@@ -186,7 +186,8 @@
         '<div class="grid lg:grid-cols-3 gap-5">' +
           '<div class="lg:col-span-2 space-y-5">' +
             // Customer + address
-            '<div class="bg-white rounded-2xl p-5 shadow-sm"><h3 class="font-bold mb-3"><i class="fas fa-user text-emerald-600 mr-2"></i>কাস্টমার তথ্য</h3>' +
+            '<div class="bg-white rounded-2xl p-5 shadow-sm"><div class="flex justify-between items-center mb-3"><h3 class="font-bold"><i class="fas fa-user text-emerald-600 mr-2"></i>কাস্টমার তথ্য</h3>' +
+              '<button onclick="AV.editCustModal(' + o.id + ')" class="text-sm text-emerald-600 font-semibold"><i class="fas fa-pen mr-1"></i>এডিট</button></div>' +
               '<div class="grid sm:grid-cols-2 gap-3 text-sm">' +
                 '<div><span class="text-gray-500">নাম:</span> <a href="#/customers/' + esc(o.phone) + '" class="font-semibold text-emerald-700">' + esc(o.customer_name) + '</a></div>' +
                 '<div><span class="text-gray-500">ফোন:</span> <a href="tel:' + esc(o.phone) + '" class="font-semibold text-blue-600">' + esc(o.phone) + '</a>' + (o.alt_phone ? ' / <a href="tel:' + esc(o.alt_phone) + '" class="text-blue-600">' + esc(o.alt_phone) + '</a>' : '') + '</div>' +
@@ -289,8 +290,9 @@
         '</div>' +
         fh('ট্র্যাকিং / কনসাইনমেন্ট আইডি', inp('tf-tracking', '', 'যেমন: 15BAEB8A'), 'API দিয়ে পাঠালে খালি রাখুন (অটো আসবে)। ম্যানুয়ালি পাঠালে কুরিয়ার প্যানেল থেকে পাওয়া আইডি এখানে লিখুন') +
         '<div class="grid grid-cols-2 gap-3">' +
-          fh('প্রোডাক্টের ওজন (কেজি)', '<select id="tf-weight" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white">' +
-            ['0.5', '1', '1.5', '2', '3', '4', '5', '7', '10'].map(function (w) { return '<option value="' + w + '"' + (w === '0.5' ? ' selected' : '') + '>' + w + ' কেজি</option>'; }).join('') + '</select>',
+          fh('প্রোডাক্টের ওজন', '<select id="tf-weight" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white">' +
+            [['0.01', '১০ গ্রাম'], ['0.02', '২০ গ্রাম'], ['0.03', '৩০ গ্রাম'], ['0.5', '০.৫ কেজি'], ['1', '১ কেজি'], ['1.5', '১.৫ কেজি'], ['2', '২ কেজি'], ['3', '৩ কেজি'], ['4', '৪ কেজি'], ['5', '৫ কেজি'], ['7', '৭ কেজি'], ['10', '১০ কেজি']]
+              .map(function (w) { return '<option value="' + w[0] + '"' + (w[0] === '0.5' ? ' selected' : '') + '>' + w[1] + '</option>'; }).join('') + '</select>',
             'প্যাকেজসহ মোট ওজন — বেশি ওজনে কুরিয়ার চার্জ বাড়তে পারে') +
           fh('ডেলিভারি চার্জ (কাস্টমার)', inp('tf-delivery', '', 'খালি = অপরিবর্তিত', 'number'), 'কাস্টমারের কাছ থেকে নেওয়া ডেলিভারি চার্জ পাল্টাতে চাইলে লিখুন') +
         '</div>' +
@@ -364,6 +366,30 @@
         courier_cost: Number(v('ef-courier') || 0), cod_charge: Number(v('ef-cod') || 0),
         ad_cost: Number(v('ef-ad') || 0), other_cost: Number(v('ef-other') || 0)
       }).then(function () { closeModal(); toast('আপডেট হয়েছে, প্রফিট পুনরায় হিসাব হয়েছে'); viewOrderDetail(); }).catch(apiErr);
+    },
+
+    editCustModal: function (id) {
+      var o = S._currentOrder;
+      modal('<i class="fas fa-user-pen text-emerald-600 mr-2"></i>কাস্টমার তথ্য এডিট',
+        field('নাম', inp('ec-name', o.customer_name, '')) +
+        '<div class="grid grid-cols-2 gap-3">' +
+          field('ফোন', inp('ec-phone', o.phone, '01XXXXXXXXX')) +
+          field('বিকল্প ফোন', inp('ec-altphone', o.alt_phone || '', '01XXXXXXXXX')) +
+        '</div>' +
+        field('ঠিকানা', inp('ec-address', o.address, '')) +
+        '<div class="grid grid-cols-2 gap-3">' +
+          field('জেলা', inp('ec-district', o.district || '', '')) +
+          field('উপজেলা', inp('ec-upazila', o.upazila || '', '')) +
+        '</div>' +
+        '<p class="text-xs text-gray-400">ফোন নম্বর ভুল ফরম্যাট (leading 0 ছাড়া ইত্যাদি) হলে কুরিয়ারে ট্রান্সফার ব্যর্থ হতে পারে — এখান থেকেই ঠিক করে নিন।</p>',
+        '<button onclick="A.closeModal()" class="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">বাতিল</button>' +
+        '<button onclick="AV.saveCust(' + id + ')" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold">সংরক্ষণ</button>');
+    },
+    saveCust: function (id) {
+      axios.put('/api/admin/orders/' + id, {
+        customer_name: v('ec-name'), phone: v('ec-phone'), alt_phone: v('ec-altphone'),
+        address: v('ec-address'), district: v('ec-district'), upazila: v('ec-upazila')
+      }).then(function () { closeModal(); toast('কাস্টমার তথ্য আপডেট হয়েছে'); viewOrderDetail(); }).catch(apiErr);
     },
 
     saveNotes: function (id) {

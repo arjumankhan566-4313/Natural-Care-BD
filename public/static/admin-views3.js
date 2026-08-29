@@ -607,8 +607,17 @@
     if (!o) return;
     var row = function (l, val) { return '<div class="flex justify-between py-1.5 border-b border-gray-50 text-sm"><span class="text-gray-500">' + l + '</span><span class="font-semibold text-right max-w-[60%]">' + (val || '—') + '</span></div>'; };
     modal('ইনকমপ্লিট অর্ডার #' + o.id,
-      row('নাম', esc(o.customer_name)) + row('ফোন', esc(o.phone)) + row('বিকল্প ফোন', esc(o.alt_phone)) +
-      row('ঠিকানা', esc(o.address)) + row('জেলা', esc(o.district)) + row('উপজেলা', esc(o.upazila)) +
+      '<div class="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-xs text-blue-700"><i class="fas fa-pen mr-1"></i>নাম/ফোন/ঠিকানা ভুল হলে এখানেই ঠিক করে সংরক্ষণ করুন — বিশেষ করে ফোন নম্বর ঠিক (01XXXXXXXXX ফরম্যাট) থাকলেই কনভার্ট ও কুরিয়ারে পাঠানো নির্ভরযোগ্য হবে।</div>' +
+      field('নাম', inp('inc-name', o.customer_name || '')) +
+      '<div class="grid grid-cols-2 gap-3">' +
+        field('ফোন', inp('inc-phone', o.phone || '', '01XXXXXXXXX')) +
+        field('বিকল্প ফোন', inp('inc-altphone', o.alt_phone || '', '01XXXXXXXXX')) +
+      '</div>' +
+      field('ঠিকানা', inp('inc-address', o.address || '')) +
+      '<div class="grid grid-cols-2 gap-3">' +
+        field('জেলা', inp('inc-district', o.district || '')) +
+        field('উপজেলা', inp('inc-upazila', o.upazila || '')) +
+      '</div>' +
       row('নোট', esc(o.order_note)) + row('প্রোডাক্ট', esc(o.product_name)) + row('প্যাকেজ', esc(o.package_name)) +
       row('মোট', o.grand_total ? money(o.grand_total) : '') +
       row('UTM Source', esc(o.utm_source)) + row('Campaign', esc(o.utm_campaign)) + row('fbclid', o.fbclid ? '✓ আছে' : '') +
@@ -621,7 +630,11 @@
       (o.status !== 'converted' ? '<button onclick="A.closeModal();AV.incConvert(' + id + ')" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold"><i class="fas fa-cart-plus mr-1"></i>অর্ডারে কনভার্ট</button>' : ''));
   };
   AV.incSave = function (id) {
-    axios.put('/api/admin/incomplete-orders/' + id, { status: v('inc-status'), admin_note: v('inc-note') })
+    axios.put('/api/admin/incomplete-orders/' + id, {
+      status: v('inc-status'), admin_note: v('inc-note'),
+      customer_name: v('inc-name'), phone: v('inc-phone'), alt_phone: v('inc-altphone'),
+      address: v('inc-address'), district: v('inc-district'), upazila: v('inc-upazila')
+    })
       .then(function () { closeModal(); toast('সংরক্ষিত'); viewIncomplete(); }).catch(apiErr);
   };
   AV.incConvert = function (id) {
