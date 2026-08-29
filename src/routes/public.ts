@@ -17,7 +17,7 @@ pub.get('/content', async (c) => {
     getSettings(db),
     db.prepare(`SELECT id, name, subtitle, slug, description, features, benefits, ingredients, usage_instructions, package_details, main_image, gallery_images, video_url, regular_price, sale_price, stock, stock_status, is_featured FROM products WHERE is_active = 1 AND is_deleted = 0 ORDER BY sort_order, id`).all(),
     db.prepare('SELECT icon, title, description, image FROM benefits WHERE is_visible = 1 ORDER BY sort_order').all(),
-    db.prepare('SELECT customer_name, customer_image, review_text, rating, is_featured FROM reviews WHERE is_published = 1 ORDER BY is_featured DESC, sort_order').all(),
+    db.prepare('SELECT customer_name, customer_image, screenshot_url, review_text, rating, is_featured FROM reviews WHERE is_published = 1 ORDER BY is_featured DESC, sort_order').all(),
     db.prepare('SELECT question, answer FROM faqs WHERE is_visible = 1 ORDER BY sort_order').all(),
     db.prepare('SELECT section_type, title, content, sort_order FROM page_sections WHERE is_visible = 1 ORDER BY sort_order').all(),
     db.prepare('SELECT id, image_url, title, subtitle, link_url FROM hero_banners WHERE is_active = 1 ORDER BY sort_order, id').all().catch(() => ({ results: [] }))
@@ -34,7 +34,12 @@ pub.get('/content', async (c) => {
     'delivery_charge_dhaka', 'delivery_charge_outside', 'free_delivery_enabled', 'free_delivery_min',
     'otp_enabled', 'meta_pixel_id', 'meta_pixel_enabled', 'meta_events_enabled', 'ga_id', 'gtm_id', 'tiktok_pixel_id', 'banner_autoplay_seconds',
     'bsti_enabled', 'bsti_title', 'bsti_description', 'bsti_certificate_image', 'favicon_url',
-    'seo_title', 'seo_description', 'seo_keywords', 'og_image', 'canonical_url', 'robots', 'fb_share_title', 'fb_share_description']
+    'seo_title', 'seo_description', 'seo_keywords', 'og_image', 'canonical_url', 'robots', 'fb_share_title', 'fb_share_description',
+    'trust_stats_enabled', 'trust_stats_title',
+    'trust_stat1_number', 'trust_stat1_label', 'trust_stat1_icon',
+    'trust_stat2_number', 'trust_stat2_label', 'trust_stat2_icon',
+    'trust_stat3_number', 'trust_stat3_label', 'trust_stat3_icon',
+    'trust_stat4_number', 'trust_stat4_label', 'trust_stat4_icon']
   for (const k of allowedKeys) if (settings[k] !== undefined) publicSettings[k] = settings[k]
 
   return c.json({

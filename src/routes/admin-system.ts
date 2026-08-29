@@ -68,6 +68,19 @@ r.post('/assets/:key', requireAuth('settings'), async (c) => {
   await auditLog(db, user.id, user.username, 'update', 'assets', key, `Asset uploaded: ${key}`)
   return c.json({ success: true, url })
 })
+// Generic image upload (e.g. review screenshots) — stores in D1 `assets` table under a generated key
+r.post('/upload-image', requireAuth('content'), async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json<{ data: string; mime: string }>()
+  const { data, mime } = body || ({} as any)
+  if (!data || !mime) return c.json({ message: 'ইমেজ ডেটা পাওয়া যায়নি' }, 400)
+  if (!/^image\/(png|jpe?g|webp|gif)$/.test(mime)) return c.json({ message: 'শুধু ইমেজ ফাইল আপলোড করা যাবে' }, 400)
+  if (data.length > 2_500_000) return c.json({ message: 'ফাইল খুব বড়। ছোট করে আবার চেষ্টা করুন' }, 400)
+  const key = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  await db.prepare('INSERT INTO assets (key, mime, data, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)').bind(key, mime, data).run()
+  return c.json({ success: true, url: `/assets/${key}` })
+})
+
 r.delete('/assets/:key', requireAuth('settings'), async (c) => {
   const db = c.env.DB
   const user = c.get('user')

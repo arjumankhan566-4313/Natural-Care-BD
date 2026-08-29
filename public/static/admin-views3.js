@@ -262,17 +262,52 @@
     modal(id ? 'রিভিউ এডিট' : 'নতুন রিভিউ',
       field('কাস্টমার নাম *', inp('rv-name', b.customer_name)) +
       field('রিভিউ *', textarea('rv-text', b.review_text, 3)) +
-      '<div class="grid grid-cols-2 gap-3">' + field('রেটিং (১-৫)', inp('rv-rating', b.rating || 5, '', 'number')) + field('ছবি URL', inp('rv-image', b.customer_image)) + '</div>' +
+      '<div class="grid grid-cols-2 gap-3">' + field('রেটিং (১-৫)', inp('rv-rating', b.rating || 5, '', 'number')) + field('কাস্টমারের ছবি URL (ছোট, ঐচ্ছিক)', inp('rv-image', b.customer_image)) + '</div>' +
       field('Sort', inp('rv-sort', b.sort_order || 0, '', 'number')) +
+      '<div class="mb-3">' +
+        '<label class="block text-sm font-semibold text-gray-700 mb-1.5">রিভিউ স্ক্রিনশট (WhatsApp/Messenger/Facebook)</label>' +
+        '<div id="rv-ss-prev" class="mb-2">' + (b.screenshot_url ? '<img src="' + esc(b.screenshot_url) + '" class="rounded-lg max-h-40 border border-gray-200">' : '') + '</div>' +
+        '<input type="hidden" id="rv-screenshot" value="' + esc(b.screenshot_url || '') + '">' +
+        '<input type="file" id="rv-ss-file" accept="image/*" class="hidden" onchange="AV.uploadReviewScreenshot()">' +
+        '<button type="button" onclick="document.getElementById(\'rv-ss-file\').click()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg"><i class="fas fa-upload mr-1.5"></i>স্ক্রিনশট আপলোড</button>' +
+        '<p class="text-xs text-gray-400 mt-1">কাস্টমারের WhatsApp/Messenger/Facebook চ্যাটের স্ক্রিনশট দিলে বিশ্বাসযোগ্যতা বাড়ে</p>' +
+      '</div>' +
       '<div class="flex gap-5">' + checkbox('rv-pub', b.is_published !== 0, 'পাবলিশড') + checkbox('rv-feat', !!b.is_featured, 'Featured') + '</div>' +
       '<p class="text-xs text-amber-600 mt-3"><i class="fas fa-triangle-exclamation mr-1"></i>শুধুমাত্র প্রকৃত কাস্টমার রিভিউ ব্যবহার করুন।</p>',
       '<button onclick="A.closeModal()" class="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">বাতিল</button>' +
       '<button onclick="AV.saveReview(' + (id || 0) + ')" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold">সংরক্ষণ</button>');
   };
   AV.saveReview = function (id) {
-    var payload = { customer_name: v('rv-name'), review_text: v('rv-text'), rating: Number(v('rv-rating') || 5), customer_image: v('rv-image'), sort_order: Number(v('rv-sort') || 0), is_published: chk('rv-pub'), is_featured: chk('rv-feat') };
+    var payload = { customer_name: v('rv-name'), review_text: v('rv-text'), rating: Number(v('rv-rating') || 5), customer_image: v('rv-image'), screenshot_url: v('rv-screenshot'), sort_order: Number(v('rv-sort') || 0), is_published: chk('rv-pub'), is_featured: chk('rv-feat') };
     (id ? axios.put('/api/admin/content/reviews/' + id, payload) : axios.post('/api/admin/content/reviews', payload))
       .then(function () { closeModal(); toast('সংরক্ষিত'); viewContent(); }).catch(apiErr);
+  };
+  AV.uploadReviewScreenshot = function () {
+    var input = document.getElementById('rv-ss-file');
+    var file = input.files && input.files[0];
+    if (!file) return;
+    if (!/^image\//.test(file.type)) { toast('শুধু ইমেজ ফাইল দিন', 'error'); return; }
+    var img = new Image();
+    var fr = new FileReader();
+    fr.onload = function () { img.src = fr.result; };
+    img.onload = function () {
+      var maxDim = 1000;
+      var scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      var cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * scale); cv.height = Math.round(img.height * scale);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      var mime = 'image/jpeg';
+      var dataUrl = cv.toDataURL(mime, 0.82);
+      var b64 = dataUrl.split(',')[1];
+      toast('আপলোড হচ্ছে...');
+      axios.post('/api/admin/upload-image', { data: b64, mime: mime }).then(function (r) {
+        toast('স্ক্রিনশট আপলোড সফল ✅');
+        document.getElementById('rv-screenshot').value = r.data.url;
+        var prev = document.getElementById('rv-ss-prev');
+        if (prev) prev.innerHTML = '<img src="' + r.data.url + '" class="rounded-lg max-h-40 border border-gray-200">';
+      }).catch(apiErr);
+    };
+    fr.readAsDataURL(file);
   };
   AV.editFaq = function (id) {
     var b = (S._content.faqs || []).find(function (x) { return x.id === id; }) || {};

@@ -216,14 +216,14 @@ content.get('/reviews', async (c) => {
 })
 content.post('/reviews', async (c) => {
   const b = await c.req.json()
-  const res = await c.env.DB.prepare('INSERT INTO reviews (customer_name, customer_image, review_text, rating, is_published, is_featured, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .bind(b.customer_name, b.customer_image || '', b.review_text, Math.min(5, Math.max(1, Number(b.rating || 5))), b.is_published === false ? 0 : 1, b.is_featured ? 1 : 0, Number(b.sort_order || 0)).run()
+  const res = await c.env.DB.prepare('INSERT INTO reviews (customer_name, customer_image, screenshot_url, review_text, rating, is_published, is_featured, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(b.customer_name, b.customer_image || '', b.screenshot_url || '', b.review_text, Math.min(5, Math.max(1, Number(b.rating || 5))), b.is_published === false ? 0 : 1, b.is_featured ? 1 : 0, Number(b.sort_order || 0)).run()
   return c.json({ success: true, id: res.meta.last_row_id })
 })
 content.put('/reviews/:id', async (c) => {
   const b = await c.req.json()
-  await c.env.DB.prepare('UPDATE reviews SET customer_name=?, customer_image=?, review_text=?, rating=?, is_published=?, is_featured=?, sort_order=? WHERE id=?')
-    .bind(b.customer_name, b.customer_image || '', b.review_text, Math.min(5, Math.max(1, Number(b.rating || 5))), b.is_published === false ? 0 : 1, b.is_featured ? 1 : 0, Number(b.sort_order || 0), Number(c.req.param('id'))).run()
+  await c.env.DB.prepare('UPDATE reviews SET customer_name=?, customer_image=?, screenshot_url=?, review_text=?, rating=?, is_published=?, is_featured=?, sort_order=? WHERE id=?')
+    .bind(b.customer_name, b.customer_image || '', b.screenshot_url || '', b.review_text, Math.min(5, Math.max(1, Number(b.rating || 5))), b.is_published === false ? 0 : 1, b.is_featured ? 1 : 0, Number(b.sort_order || 0), Number(c.req.param('id'))).run()
   return c.json({ success: true })
 })
 content.delete('/reviews/:id', async (c) => {

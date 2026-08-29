@@ -14,7 +14,7 @@ import adminIncomplete from './routes/admin-incomplete'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Cache-busting version for static JS/CSS — bump on every deploy of frontend assets
-const ASSET_V = '6'
+const ASSET_V = '7'
 
 // CORS for API routes
 app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }))
@@ -98,8 +98,10 @@ ${s.canonical_url ? `<link rel="canonical" href="${esc(s.canonical_url)}">` : ''
 <meta property="og:description" content="${esc(s.fb_share_description || s.seo_description || '')}">
 ${s.og_image ? `<meta property="og:image" content="${esc(s.og_image)}">` : ''}
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" href="/static/tailwind.css?v=${ASSET_V}" as="style">
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.tailwindcss.com"></script>
+<link href="/static/tailwind.css?v=${ASSET_V}" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
 <link href="/static/landing.css?v=${ASSET_V}" rel="stylesheet">
 ${pixelScript}${gaScript}${gtmScript}
@@ -124,7 +126,7 @@ app.get('/track-order', async (c) => {
 <meta name="robots" content="noindex">
 <link rel="icon" type="image/png" href="${(s as any).favicon_url || '/static/favicon.png'}">
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.tailwindcss.com"></script>
+<link href="/static/tailwind.css?v=${ASSET_V}" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
 </head>
 <body class="bg-gray-50" style="font-family:'Hind Siliguri',sans-serif">
@@ -149,7 +151,7 @@ app.get('/admin', async (c) => {
 <link rel="icon" type="image/png" href="${s.favicon_url || '/static/favicon.png'}">
 <script>window.BRAND_LOGO=${JSON.stringify(s.brand_logo || '/static/logo-small.png')};window.BRAND_NAME=${JSON.stringify(s.brand_name || 'Nature Care Bangladesh')};</script>
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.tailwindcss.com"></script>
+<link href="/static/tailwind.css?v=${ASSET_V}" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
