@@ -343,8 +343,25 @@ pub.post('/track', rateLimit(20, 60_000), async (c) => {
   if (!order) return c.json({ error: 'not_found', message: 'অর্ডার পাওয়া যায়নি। Order ID ও মোবাইল নম্বর সঠিক কিনা দেখুন।' }, 404)
 
   const history = await db.prepare(
-    'SELECT to_status, created_at FROM order_status_history WHERE order_id = (SELECT id FROM orders WHERE order_number = ?) ORDER BY id'
+    'SELECT from_status, to_status, created_at FROM order_status_history WHERE order_id = (SELECT id FROM orders WHERE order_number = ?) ORDER BY id'
   ).bind(order.order_number).all()
+
+  // Build the customer-facing timeline from actual STATUS CHANGES only.
+  // order_status_history also logs status-neutral events (e.g. courier
+  // transfer/assignment, which inserts a row with from_status === to_status
+  // purely to record a note) — those aren't real progress steps for the
+  // customer and previously caused the same status to appear twice in a row
+  // (e.g. "কনফার্মড" শো হতো দুইবার) on the public tracking page. We now:
+  //   1. Skip rows where from_status === to_status (no real transition), and
+  //   2. Collapse any remaining consecutive duplicate statuses,
+  // keeping only the first timestamp each status was actually reached.
+  const rows = (history.results || []) as { from_status: string; to_status: string; created_at: string }[]
+  const timeline: { status: string; label: string; at: string }[] = []
+  for (const h of rows) {
+    if (h.from_status === h.to_status) continue // status-neutral event (e.g. courier transfer note)
+    if (timeline.length && timeline[timeline.length - 1].status === h.to_status) continue // consecutive dup
+    timeline.push({ status: h.to_status, label: STATUS_LABELS_BN[h.to_status] || h.to_status, at: h.created_at })
+  }
 
   // Only public-safe fields
   return c.json({
@@ -360,7 +377,7 @@ pub.post('/track', rateLimit(20, 60_000), async (c) => {
       tracking_url: order.tracking_url || null,
       shipped_at: order.shipped_at,
       delivered_at: order.delivered_at,
-      timeline: (history.results || []).map((h: any) => ({ status: h.to_status, label: STATUS_LABELS_BN[h.to_status] || h.to_status, at: h.created_at }))
+      timeline
     }
   })
 })

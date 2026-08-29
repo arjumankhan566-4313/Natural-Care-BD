@@ -52,7 +52,7 @@ const ASSET_SETTING_MAP: Record<string, string> = {
 r.post('/assets/:key', requireAuth('settings'), async (c) => {
   const db = c.env.DB
   const user = c.get('user')
-  const key = c.req.param('key')
+  const key = c.req.param('key') as string
   if (!ASSET_KEYS.includes(key)) return c.json({ message: 'অবৈধ অ্যাসেট কী' }, 400)
   const body = await c.req.json<{ data: string; mime: string }>()
   const { data, mime } = body || ({} as any)
@@ -84,7 +84,7 @@ r.post('/upload-image', requireAuth('content'), async (c) => {
 r.delete('/assets/:key', requireAuth('settings'), async (c) => {
   const db = c.env.DB
   const user = c.get('user')
-  const key = c.req.param('key')
+  const key = c.req.param('key') as string
   if (!ASSET_KEYS.includes(key)) return c.json({ message: 'অবৈধ অ্যাসেট কী' }, 400)
   await db.prepare('DELETE FROM assets WHERE key = ?').bind(key).run()
   await setSetting(db, ASSET_SETTING_MAP[key], '')
