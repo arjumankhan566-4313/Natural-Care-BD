@@ -25,19 +25,21 @@
     if (v) { state.utm[k] = v; try { sessionStorage.setItem('ncb_' + k, v); } catch (e) {} }
     else { try { var sv = sessionStorage.getItem('ncb_' + k); if (sv) state.utm[k] = sv; } catch (e) {} }
   });
-  // fbclid click-time (seconds) — captured once, the moment the ad click lands on the page.
-  // Required for a correct Meta 'fbc' value (fb.1.<click_time>.<fbclid>); using the later
-  // order/event time instead would produce a slightly wrong fbc and hurt match quality.
+  // fbclid click-time (MILLISECONDS since epoch) — captured once, the moment the ad click
+  // lands on the page. Required for a correct Meta 'fbc' value: fb.<subdomain>.<click_time_MS>.<fbclid>.
+  // Meta's spec requires the creationTime segment in MILLISECONDS, not seconds — using seconds
+  // (the previous bug here) produces a value Meta can't correctly parse as a timestamp, which
+  // silently degrades/breaks fbc-based matching and hurts Event Match Quality (EMQ).
   if (state.utm.fbclid) {
     try {
       var storedTs = sessionStorage.getItem('ncb_fbclid_ts');
       if (params.get('fbclid') || !storedTs) {
-        state.utm.fbclid_ts = String(Math.floor(Date.now() / 1000));
+        state.utm.fbclid_ts = String(Date.now());
         sessionStorage.setItem('ncb_fbclid_ts', state.utm.fbclid_ts);
       } else {
         state.utm.fbclid_ts = storedTs;
       }
-    } catch (e) { state.utm.fbclid_ts = String(Math.floor(Date.now() / 1000)); }
+    } catch (e) { state.utm.fbclid_ts = String(Date.now()); }
   }
   // Meta ad params
   state.utm.campaign_id = params.get('campaign_id') || '';
@@ -48,6 +50,20 @@
   function genEventId() {
     return 'ev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
   }
+
+  // Read a browser cookie by name. Used for _fbp/_fbc — cookies the Meta Pixel SDK sets and
+  // maintains AUTOMATICALLY once fbq() has loaded (no extra code needed on the Pixel side).
+  // The gap this fixes is server-side: our CAPI calls never read+forwarded these values, so
+  // Meta's server-side event lost this important matching signal even though the browser
+  // event always had it. fbp = Facebook Browser ID (identity anchor, works even without
+  // email/phone/fbclid). fbc = Facebook Click ID derived from fbclid; the Pixel SDK's own
+  // _fbc cookie is authoritative (correct ms timestamp) and should be preferred over any
+  // value we reconstruct manually from fbclid+fbclid_ts.
+  function getCookie(name) {
+    var match = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return match ? decodeURIComponent(match.pop()) : '';
+  }
+
   function track(eventName, data, eventId, userData) {
     var eid = eventId || genEventId();
     var enabled = state.data && state.data.settings.meta_pixel_enabled === '1';
@@ -58,6 +74,10 @@
     axios.post('/api/public/events', {
       event_name: eventName, event_id: eid, data: data || {},
       source_url: location.href, fbclid: state.utm.fbclid || '', fbclid_ts: state.utm.fbclid_ts || '',
+      // _fbp/_fbc straight from the Pixel's own cookies — sent to our backend so the
+      // server-side CAPI call can include them too (browser Pixel already sends them
+      // automatically; CAPI needs us to forward them manually).
+      fbp: getCookie('_fbp'), fbc: getCookie('_fbc'),
       // Optional customer name/phone -> forwarded to Meta CAPI (hashed server-side) for
       // Advanced Matching on non-Purchase events (e.g. Lead) once the customer has typed them.
       customer_name: (userData && userData.name) || '', customer_phone: (userData && userData.phone) || ''
@@ -83,6 +103,18 @@
   // We pass PLAIN text here — the Pixel JS SDK hashes fn/ph with SHA-256 automatically
   // on its own (see Meta's Advanced Matching docs); only the server-side CAPI call
   // needs us to pre-hash manually (done in helpers.ts / forwardToCapi()).
+  //
+  // IMPORTANT LIMITATION (confirmed against Meta's official docs): Meta's documentation
+  // explicitly states Advanced Matching parameters must be placed in the pixel's BASE
+  // fbq('init', PIXEL_ID, {...}) call — parameters added via a later, second init call
+  // are officially "not treated as manual advanced matching values". In practice many
+  // implementations still see it work (undocumented behavior), so we keep firing it as a
+  // free extra attempt, but we do NOT rely on it — it is a best-effort bonus only.
+  // The GUARANTEED delivery path for ph/fn is: (1) server-side CAPI, always sent with
+  // SHA-256 hashing in forwardToCapi() below — this is 100% reliable and already works;
+  // (2) Meta's own "Automatic Advanced Matching" (a toggle in Events Manager > Settings,
+  // outside our code) which scrapes name/phone straight from the HTML form fields — this
+  // is why the order form's inputs carry proper autocomplete="name"/"tel" attributes.
   function applyAdvancedMatching(name, phone) {
     var s = state.data && state.data.settings;
     if (!s || s.meta_advanced_matching !== '1' || !window.fbq || !s.meta_pixel_id) return;
@@ -93,9 +125,6 @@
     if (firstName) match.fn = firstName.toLowerCase();
     if (metaPhone) match.ph = metaPhone;
     if (!match.fn && !match.ph) return;
-    // Re-calling fbq('init', ...) with new Advanced Matching params is Meta's documented
-    // way to attach customer data after the initial (data-less) init on page load —
-    // every event tracked after this call carries fn/ph automatically.
     try { window.fbq('init', pixelId, match); } catch (e) {}
   }
 
@@ -414,7 +443,8 @@
       product_id: p ? p.id : null, product_name: p ? p.name : '',
       package_id: pkg ? pkg.id : null, package_name: pkg ? pkg.name : '', quantity: 1,
       subtotal: pr.subtotal, delivery_charge: pr.delivery, grand_total: pr.total,
-      source_url: location.href
+      source_url: location.href,
+      fbp: getCookie('_fbp'), fbc: getCookie('_fbc')
     };
     Object.assign(payload, state.utm);
     axios.post('/api/public/incomplete', payload).catch(function () {});
@@ -500,9 +530,9 @@
           '<form id="order-form" onsubmit="NCB.submitOrder(event)">' +
             '<div class="grid sm:grid-cols-2 gap-4 mb-4">' +
               '<div class="sm:col-span-2"><label class="block text-sm font-semibold text-gray-700 mb-1.5">আপনার নাম *</label>' +
-              '<input type="text" name="customer_name" id="f-name" required class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="সম্পূর্ণ নাম লিখুন"></div>' +
+              '<input type="text" name="customer_name" id="f-name" required autocomplete="name" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="সম্পূর্ণ নাম লিখুন"></div>' +
               '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">মোবাইল নম্বর *</label>' +
-              '<input type="tel" name="phone" id="f-phone" required class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="01XXXXXXXXX" maxlength="14"></div>' +
+              '<input type="tel" name="phone" id="f-phone" required autocomplete="tel" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="01XXXXXXXXX" maxlength="14"></div>' +
               '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">বিকল্প মোবাইল (ঐচ্ছিক)</label>' +
               '<input type="tel" name="alt_phone" id="f-alt-phone" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="01XXXXXXXXX" maxlength="14"></div>' +
               '<div class="sm:col-span-2"><label class="block text-sm font-semibold text-gray-700 mb-1.5">সম্পূর্ণ ঠিকানা *</label>' +
@@ -694,7 +724,8 @@
       items: [{ product_id: p.id, package_id: selectedPkg || null, quantity: 1 }],
       otp_verified: otpVerified,
       source_url: location.href,
-      session_id: sessionId
+      session_id: sessionId,
+      fbp: getCookie('_fbp'), fbc: getCookie('_fbc')
     };
     Object.assign(payload, state.utm);
 

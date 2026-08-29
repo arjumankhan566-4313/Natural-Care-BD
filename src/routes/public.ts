@@ -300,6 +300,8 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
     ip, ua,
     fbclid: body.fbclid || '',
     fbclidTs: body.fbclid_ts || '',
+    fbp: (body.fbp || '').slice(0, 200),
+    fbc: (body.fbc || '').slice(0, 200),
     customerName: name,
     customerPhone: phone,
     customData: { value: grandTotal, currency: 'BDT', content_ids: resolvedItems.map(i => String(i.product_id)), order_number: orderNumber }
@@ -386,6 +388,7 @@ pub.post('/events', rateLimit(60, 60_000), async (c) => {
     runBackground(c, forwardToCapi(db, {
       eventName, eventId,
       sourceUrl: body.source_url || '', ip, ua, fbclid: body.fbclid || '', fbclidTs: body.fbclid_ts || '',
+      fbp: (body.fbp || '').slice(0, 200), fbc: (body.fbc || '').slice(0, 200),
       customerName: body.customer_name || '', customerPhone: body.customer_phone || '',
       customData: body.data || {}
     }))

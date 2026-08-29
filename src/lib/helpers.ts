@@ -140,6 +140,8 @@ export async function forwardToCapi(
     ua?: string
     fbclid?: string
     fbclidTs?: string
+    fbp?: string
+    fbc?: string
     customerName?: string
     customerPhone?: string
     customData?: Record<string, any>
@@ -152,10 +154,22 @@ export async function forwardToCapi(
       client_ip_address: params.ip || undefined,
       client_user_agent: params.ua || undefined
     }
-    // fbc format per Meta spec: fb.<subdomain_index>.<click_time_seconds>.<fbclid>
-    // Prefer the actual click-time captured client-side (fbclidTs); fall back to "now"
-    // only if it's missing (e.g. old sessions created before this field existed).
-    if (params.fbclid) userData.fbc = `fb.1.${params.fbclidTs || Math.floor(Date.now() / 1000)}.${params.fbclid}`
+    // fbp = Facebook Browser ID cookie (_fbp), set automatically by the Pixel SDK. This is
+    // one of the strongest matching signals (identity anchor) — send it exactly as read
+    // from the browser cookie, never modify/reconstruct it.
+    if (params.fbp) userData.fbp = params.fbp
+    // fbc = Facebook Click ID. Prefer the REAL _fbc cookie value the Pixel SDK itself set
+    // (already correctly formatted with a millisecond timestamp) — it is authoritative.
+    // Only reconstruct fbc manually from fbclid+fbclidTs as a fallback, for sessions where
+    // the _fbc cookie wasn't available (e.g. cookie blocked) but we still captured the
+    // fbclid URL param ourselves. Per Meta's spec the format is
+    // fb.<subdomain_index>.<creationTime_in_MILLISECONDS>.<fbclid> — using seconds here
+    // (the previous bug) breaks fbc-based matching entirely.
+    if (params.fbc) {
+      userData.fbc = params.fbc
+    } else if (params.fbclid) {
+      userData.fbc = `fb.1.${params.fbclidTs || Date.now()}.${params.fbclid}`
+    }
     // Advanced Matching (ph/fn) — required by Meta ads booster for higher match quality.
     // Both fields must be SHA-256 hashed per Meta CAPI spec (unlike the browser Pixel,
     // which auto-hashes plain text passed to fbq('init', ..., {ph, fn})).
