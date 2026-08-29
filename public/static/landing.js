@@ -125,6 +125,22 @@
       '</div>' +
     '</section>' +
 
+    // ===== TRUST STATS =====
+    (s.trust_stats_enabled === '1' ?
+    '<section id="trust-stats-section" class="py-12 bg-white">' +
+      '<div class="max-w-6xl mx-auto px-4">' +
+        '<h2 class="text-2xl md:text-3xl font-bold text-center text-gray-900 mb-10">' + esc(s.trust_stats_title || 'হাজারো কাস্টমারের আস্থা আমাদের সাথে') + '</h2>' +
+        '<div class="grid grid-cols-2 md:grid-cols-4 gap-5">' +
+        [1, 2, 3, 4].map(function (i) {
+          var num = s['trust_stat' + i + '_number'], lab = s['trust_stat' + i + '_label'], icon = s['trust_stat' + i + '_icon'];
+          if (!num && !lab) return '';
+          return '<div class="fade-up text-center bg-emerald-50 rounded-2xl p-6">' +
+            '<div class="w-12 h-12 mx-auto mb-3 rounded-full bg-emerald-100 flex items-center justify-center"><i class="fas ' + esc(icon || 'fa-star') + ' text-emerald-600 text-lg"></i></div>' +
+            '<div class="text-2xl md:text-3xl font-extrabold text-emerald-700 mb-1">' + esc(num) + '</div>' +
+            '<div class="text-sm text-gray-600 font-medium">' + esc(lab) + '</div></div>';
+        }).join('') +
+        '</div></div></section>' : '') +
+
     // ===== PRODUCT SECTION =====
     (product ? renderProduct(product) : '') +
 
@@ -187,6 +203,7 @@
           return '<article class="review-card fade-up bg-white rounded-2xl p-6">' +
             '<div class="mb-3">' + stars(rv.rating) + '</div>' +
             '<p class="text-gray-700 mb-4">"' + esc(rv.review_text) + '"</p>' +
+            (rv.screenshot_url ? '<img src="' + esc(rv.screenshot_url) + '" alt="কাস্টমার রিভিউ স্ক্রিনশট" class="rounded-xl w-full max-h-64 object-cover mb-4 cursor-zoom-in border border-gray-100" onclick="NCB.zoomCert(this.src)" loading="lazy">' : '') +
             '<div class="flex items-center gap-3">' +
             (rv.customer_image ? '<img src="' + esc(rv.customer_image) + '" class="w-10 h-10 rounded-full object-cover" alt="">' :
              '<div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold">' + esc((rv.customer_name || '?')[0]) + '</div>') +

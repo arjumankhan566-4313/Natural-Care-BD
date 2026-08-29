@@ -362,6 +362,20 @@
           f('bsti_enabled', 'ল্যান্ডিং পেজে দেখান (1 = হ্যাঁ / 0 = না)') + f('bsti_title', 'সেকশন টাইটেল') + '</div>' +
           field('বিবরণ', textarea('st-bsti_description', st.bsti_description, 2)) +
           assetUploader('bsti_certificate', 'BSTI সার্টিফিকেটের ছবি', st.bsti_certificate_image, 'সার্টিফিকেটের পরিষ্কার ছবি/স্ক্যান আপলোড করুন — ল্যান্ডিং পেজে দেখাবে')) +
+        grp('<i class="fas fa-award text-emerald-600 mr-2"></i>ট্রাস্ট স্ট্যাটস (কাস্টমারের আস্থা দেখানোর সংখ্যা)',
+          '<p class="text-xs text-amber-600 mb-3"><i class="fas fa-triangle-exclamation mr-1"></i>শুধুমাত্র সত্য ও যাচাইযোগ্য সংখ্যা দিন। ভুল/অতিরঞ্জিত তথ্য দিলে কাস্টমারের আস্থা নষ্ট হতে পারে।</p>' +
+          f('trust_stats_enabled', 'ল্যান্ডিং পেজে দেখান (1 = হ্যাঁ / 0 = না)') +
+          f('trust_stats_title', 'সেকশন টাইটেল') +
+          '<div class="grid md:grid-cols-2 gap-x-4 mt-2">' +
+          [1, 2, 3, 4].map(function (i) {
+            return '<div class="border border-gray-100 rounded-xl p-3 mb-3">' +
+              '<div class="text-xs font-bold text-gray-400 mb-2">স্ট্যাট ' + i + '</div>' +
+              field('সংখ্যা', inp('st-trust_stat' + i + '_number', st['trust_stat' + i + '_number'], 'যেমন: ১০,০০০+')) +
+              field('লেবেল', inp('st-trust_stat' + i + '_label', st['trust_stat' + i + '_label'], 'যেমন: সন্তুষ্ট কাস্টমার')) +
+              field('আইকন (FontAwesome ক্লাস)', inp('st-trust_stat' + i + '_icon', st['trust_stat' + i + '_icon'], 'fa-users')) +
+            '</div>';
+          }).join('') +
+          '</div>') +
         grp('<i class="fas fa-heading text-blue-500 mr-2"></i>হিরো ও অফার কনটেন্ট',
           f('hero_headline', 'হেডলাইন') +
           field('সাবহেডলাইন', textarea('st-hero_subheadline', st.hero_subheadline, 2)) +
