@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
 import {
   getSettings, getSetting, generateOrderNumber, generateToken, validBDPhone, normalizePhone,
-  recalcOrderProfit, refreshCustomerStats, notify, STATUS_LABELS_BN
+  recalcOrderProfit, refreshCustomerStats, notify, forwardToCapi, STATUS_LABELS_BN
 } from '../lib/helpers'
 import { calculateRisk } from '../lib/risk'
 import { rateLimit } from '../lib/auth'
@@ -280,6 +280,21 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
      VALUES (?, 'Purchase', ?, ?, ?, ?, ?)`
   ).bind(eventId, JSON.stringify({ order_number: orderNumber, value: grandTotal, currency: 'BDT' }), body.source_url || '', ip, ua, body.fbclid || '').run()
 
+  // Guaranteed server-side Purchase → Meta CAPI. This does NOT depend on the customer's
+  // browser calling /api/public/events — it fires immediately here so an ad-blocker, iOS
+  // tracking prevention, or the customer closing the tab right after ordering can never
+  // cause a lost Purchase event. The browser-side fbq('track','Purchase', ...) call uses the
+  // same event_id (returned below), so Meta automatically de-duplicates the two signals.
+  await forwardToCapi(db, {
+    eventName: 'Purchase',
+    eventId,
+    sourceUrl: body.source_url || '',
+    ip, ua,
+    fbclid: body.fbclid || '',
+    fbclidTs: body.fbclid_ts || '',
+    customData: { value: grandTotal, currency: 'BDT', content_ids: resolvedItems.map(i => String(i.product_id)), order_number: orderNumber }
+  })
+
   // Mark matching incomplete order as converted (order was completed)
   if (body.session_id) {
     await db.prepare(`UPDATE incomplete_orders SET status = 'converted', order_id = ?, updated_at = datetime('now') WHERE session_id = ? AND status != 'converted'`)
@@ -352,32 +367,17 @@ pub.post('/events', rateLimit(60, 60_000), async (c) => {
     `INSERT OR IGNORE INTO tracking_events (event_id, event_name, event_data, source_url, ip_address, user_agent, fbclid) VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).bind(eventId, eventName, JSON.stringify(body.data || {}), (body.source_url || '').slice(0, 500), ip, ua, (body.fbclid || '').slice(0, 300)).run()
 
-  // Attempt server-side CAPI forwarding if configured
-  const s = await getSettings(db, ['meta_capi_enabled', 'meta_capi_token', 'meta_pixel_id'])
-  if (s.meta_capi_enabled === '1' && s.meta_capi_token && s.meta_pixel_id) {
-    try {
-      const resp = await fetch(`https://graph.facebook.com/v18.0/${s.meta_pixel_id}/events`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: [{
-            event_name: eventName,
-            event_time: Math.floor(Date.now() / 1000),
-            event_id: eventId,
-            action_source: 'website',
-            event_source_url: body.source_url || '',
-            user_data: { client_ip_address: ip, client_user_agent: ua },
-            custom_data: body.data || {}
-          }],
-          access_token: s.meta_capi_token
-        })
-      })
-      const txt = await resp.text()
-      await db.prepare('UPDATE tracking_events SET sent_to_capi = ?, capi_response = ? WHERE event_id = ?')
-        .bind(resp.ok ? 1 : 0, txt.slice(0, 500), eventId).run()
-    } catch (e: any) {
-      await db.prepare('UPDATE tracking_events SET capi_response = ? WHERE event_id = ?').bind(`error: ${e.message}`.slice(0, 500), eventId).run()
-    }
+  // Server-side CAPI forward for non-Purchase events. Purchase is already guaranteed-sent
+  // server-side from the /orders route the instant the order is created — sending it again
+  // here (with the same event_id, which the browser's fbq() call also uses) would just be a
+  // redundant duplicate fetch to Meta since Meta already de-dupes on event_id anyway, but we
+  // skip it to save the extra API call.
+  if (eventName !== 'Purchase') {
+    await forwardToCapi(db, {
+      eventName, eventId,
+      sourceUrl: body.source_url || '', ip, ua, fbclid: body.fbclid || '', fbclidTs: body.fbclid_ts || '',
+      customData: body.data || {}
+    })
   }
   return c.json({ success: true, event_id: eventId })
 })

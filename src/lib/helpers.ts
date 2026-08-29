@@ -68,6 +68,61 @@ export async function notify(db: D1Database, type: string, title: string, messag
   await db.prepare('INSERT INTO notifications (type, title, message, link) VALUES (?, ?, ?, ?)').bind(type, title, message, link).run()
 }
 
+// Forward a tracking event to Meta Conversions API directly from the server.
+// Used both for the guaranteed server-side Purchase send (at order-creation time,
+// independent of whether the customer's browser ever calls /api/public/events)
+// and for the client-triggered /events endpoint (PageView, ViewContent, etc).
+export async function forwardToCapi(
+  db: D1Database,
+  params: {
+    eventName: string
+    eventId: string
+    sourceUrl?: string
+    ip?: string
+    ua?: string
+    fbclid?: string
+    fbclidTs?: string
+    customData?: Record<string, any>
+  }
+): Promise<void> {
+  const s = await getSettings(db, ['meta_capi_enabled', 'meta_capi_token', 'meta_pixel_id', 'meta_test_event_code'])
+  if (s.meta_capi_enabled !== '1' || !s.meta_capi_token || !s.meta_pixel_id) return
+  try {
+    const userData: Record<string, any> = {
+      client_ip_address: params.ip || undefined,
+      client_user_agent: params.ua || undefined
+    }
+    // fbc format per Meta spec: fb.<subdomain_index>.<click_time_seconds>.<fbclid>
+    // Prefer the actual click-time captured client-side (fbclidTs); fall back to "now"
+    // only if it's missing (e.g. old sessions created before this field existed).
+    if (params.fbclid) userData.fbc = `fb.1.${params.fbclidTs || Math.floor(Date.now() / 1000)}.${params.fbclid}`
+    const payload: any = {
+      data: [{
+        event_name: params.eventName,
+        event_time: Math.floor(Date.now() / 1000),
+        event_id: params.eventId,
+        action_source: 'website',
+        event_source_url: params.sourceUrl || '',
+        user_data: userData,
+        custom_data: params.customData || {}
+      }],
+      access_token: s.meta_capi_token
+    }
+    if (s.meta_test_event_code) payload.test_event_code = s.meta_test_event_code
+    const resp = await fetch(`https://graph.facebook.com/v18.0/${s.meta_pixel_id}/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    const txt = await resp.text()
+    await db.prepare('UPDATE tracking_events SET sent_to_capi = ?, capi_response = ? WHERE event_id = ?')
+      .bind(resp.ok ? 1 : 0, txt.slice(0, 500), params.eventId).run()
+  } catch (e: any) {
+    await db.prepare('UPDATE tracking_events SET capi_response = ? WHERE event_id = ?')
+      .bind(`error: ${e.message}`.slice(0, 500), params.eventId).run()
+  }
+}
+
 // Recalculate order profit and persist
 export async function recalcOrderProfit(db: D1Database, orderId: number) {
   const o = await db.prepare('SELECT * FROM orders WHERE id = ?').bind(orderId).first<any>()

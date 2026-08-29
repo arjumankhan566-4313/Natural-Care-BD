@@ -25,6 +25,20 @@
     if (v) { state.utm[k] = v; try { sessionStorage.setItem('ncb_' + k, v); } catch (e) {} }
     else { try { var sv = sessionStorage.getItem('ncb_' + k); if (sv) state.utm[k] = sv; } catch (e) {} }
   });
+  // fbclid click-time (seconds) — captured once, the moment the ad click lands on the page.
+  // Required for a correct Meta 'fbc' value (fb.1.<click_time>.<fbclid>); using the later
+  // order/event time instead would produce a slightly wrong fbc and hurt match quality.
+  if (state.utm.fbclid) {
+    try {
+      var storedTs = sessionStorage.getItem('ncb_fbclid_ts');
+      if (params.get('fbclid') || !storedTs) {
+        state.utm.fbclid_ts = String(Math.floor(Date.now() / 1000));
+        sessionStorage.setItem('ncb_fbclid_ts', state.utm.fbclid_ts);
+      } else {
+        state.utm.fbclid_ts = storedTs;
+      }
+    } catch (e) { state.utm.fbclid_ts = String(Math.floor(Date.now() / 1000)); }
+  }
   // Meta ad params
   state.utm.campaign_id = params.get('campaign_id') || '';
   state.utm.adset_id = params.get('adset_id') || '';
@@ -43,7 +57,7 @@
     }
     axios.post('/api/public/events', {
       event_name: eventName, event_id: eid, data: data || {},
-      source_url: location.href, fbclid: state.utm.fbclid || ''
+      source_url: location.href, fbclid: state.utm.fbclid || '', fbclid_ts: state.utm.fbclid_ts || ''
     }).catch(function () {});
     return eid;
   }
