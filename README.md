@@ -12,7 +12,14 @@
 - **Landing Page**: `/`
 - **Order Tracking**: `/track-order`
 - **Admin Panel**: `/admin` — লগইন: `arjumankhan566@gmail.com` (পাসওয়ার্ড admin panel মালিকের কাছে)
-- **Deployment**: ✅ Cloudflare Pages (project: `natural-care-bd`, D1: `natural-care-bd-production`) — Last deployed: 2026-08-29 (ইমেজ অপ্টিমাইজেশন + রিভিউ স্ক্রিনশট + ট্রাস্ট স্ট্যাটস + প্যাকেজ এডিট)
+- **Deployment**: ✅ Cloudflare Pages (project: `natural-care-bd`, D1: `natural-care-bd-production`) — Last deployed: 2026-08-29 (Meta CAPI EMQ ফিক্স: fbc ms-timestamp bug, fbp/fbc end-to-end forwarding, autocomplete attrs)
+
+### Meta Pixel + CAPI Fix Log (2026-08-29)
+- ✅ **fbc timestamp bug ফিক্স**: `fbc` কুকি/ভ্যালু রিকনস্ট্রাক্ট করার সময় আগে সেকেন্ড ব্যবহার হতো, Meta স্পেক অনুযায়ী মিলিসেকেন্ড লাগে — এখন ঠিক করা হয়েছে (client `landing.js` + server `helpers.ts`)।
+- ✅ **fbp সম্পূর্ণ যুক্ত করা হয়েছে**: `_fbp` ব্রাউজার কুকি আগে কখনো CAPI-তে পাঠানো হতো না — এখন `landing.js` → `/api/public/orders` ও `/api/public/events` → `forwardToCapi()` → Meta CAPI `user_data.fbp` পর্যন্ত সম্পূর্ণভাবে ফরওয়ার্ড হয়।
+- ✅ **fbc কুকি প্রায়োরিটি**: সার্ভার এখন রিয়েল `_fbc` ব্রাউজার কুকি (সঠিক ফরম্যাট) কে ম্যানুয়াল রিকনস্ট্রাকশনের চেয়ে প্রায়োরিটি দেয়।
+- ✅ **autocomplete attributes**: অর্ডার ফর্মে `autocomplete="name"`/`autocomplete="tel"` যুক্ত করা হয়েছে যা Meta-র অফিসিয়াল "Automatic Advanced Matching" ফিচারকে সাপোর্ট করে (Events Manager সেটিংসে টগল করা)।
+- ℹ️ পূর্বে থেকেই সঠিক ছিল (এই সেশনে পুনঃনিশ্চিত): SHA-256 hashed `ph`(880 কোড সহ)/`fn` পিক্সেল+CAPI দুই জায়গায়, CAPI-তে real IP+User-Agent, browser Pixel ও backend CAPI-তে identical shared `event_id` (dedup), ফর্ম সাবমিট হওয়ার সাথে সাথেই ইমিডিয়েট ফ্রন্টএন্ড Purchase pixel fire + ইন্ডিপেন্ডেন্ট ব্যাকগ্রাউন্ড CAPI কল।
 
 ## Completed Features (সম্পূর্ণ কার্যকর — শুধু UI নয়)
 
