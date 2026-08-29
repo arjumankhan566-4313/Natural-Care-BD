@@ -96,9 +96,13 @@
       var rows = pkgs.map(function (pk) {
         return '<div class="flex items-center justify-between bg-gray-50 rounded-xl p-3 mb-2 text-sm">' +
           '<div><span class="font-semibold">' + esc(pk.name) + '</span> — ' + pk.quantity + ' পিস, ' + money(pk.price) +
+          (pk.regular_price > pk.price ? ' <span class="text-xs text-gray-400 line-through">' + money(pk.regular_price) + '</span>' : '') +
           (pk.free_delivery ? ' <span class="text-xs text-emerald-600 font-bold">ফ্রি ডেলিভারি</span>' : '') +
-          (pk.badge ? ' <span class="text-xs bg-amber-100 text-amber-700 px-1.5 rounded">' + esc(pk.badge) + '</span>' : '') + '</div>' +
-          '<button onclick="AV.deletePackage(' + pk.id + ',' + productId + ')" class="text-red-500"><i class="fas fa-trash-can"></i></button></div>';
+          (pk.badge ? ' <span class="text-xs bg-amber-100 text-amber-700 px-1.5 rounded">' + esc(pk.badge) + '</span>' : '') +
+          (pk.is_active ? '' : ' <span class="text-xs bg-gray-200 text-gray-500 px-1.5 rounded">নিষ্ক্রিয়</span>') + '</div>' +
+          '<div class="flex gap-1 shrink-0">' +
+          '<button onclick="AV.editPackage(' + pk.id + ',' + productId + ')" class="text-emerald-600 p-1.5"><i class="fas fa-pen"></i></button>' +
+          '<button onclick="AV.deletePackage(' + pk.id + ',' + productId + ')" class="text-red-500 p-1.5"><i class="fas fa-trash-can"></i></button></div></div>';
       }).join('') || '<div class="text-gray-400 text-sm text-center py-2">কোনো প্যাকেজ নেই</div>';
       modal('প্যাকেজ ম্যানেজমেন্ট — ' + esc(r.data.product.name),
         rows + '<hr class="my-4">' +
@@ -121,8 +125,35 @@
       regular_price: Number(v('pk-regular') || 0), badge: v('pk-badge'), free_delivery: chk('pk-freedel'), sort_order: Number(v('pk-sort') || 0)
     }).then(function () { toast('প্যাকেজ যোগ হয়েছে'); AV.managePackages(productId); }).catch(apiErr);
   };
+  AV.editPackage = function (pkgId, productId) {
+    axios.get('/api/admin/products/' + productId).then(function (r) {
+      var pk = (r.data.packages || []).find(function (x) { return x.id === pkgId; });
+      if (!pk) return;
+      modal('প্যাকেজ এডিট — ' + esc(pk.name),
+        '<div class="grid grid-cols-2 gap-3">' +
+          field('নাম *', inp('pke-name', pk.name)) +
+          field('পরিমাণ (পিস)', inp('pke-qty', pk.quantity, '', 'number')) +
+          field('মূল্য (মোট) *', inp('pke-price', pk.price, '', 'number')) +
+          field('রেগুলার মূল্য', inp('pke-regular', pk.regular_price || 0, '', 'number')) +
+          field('ব্যাজ', inp('pke-badge', pk.badge || '', 'যেমন: সবচেয়ে জনপ্রিয়')) +
+          field('Sort', inp('pke-sort', pk.sort_order || 0, '', 'number')) +
+        '</div>' + checkbox('pke-freedel', !!pk.free_delivery, 'ফ্রি ডেলিভারি') +
+        '<div class="mt-3">' + checkbox('pke-active', pk.is_active !== 0, 'Active (ল্যান্ডিং পেজে দেখাবে)') + '</div>',
+        '<button onclick="A.closeModal()" class="px-4 py-2 bg-gray-100 rounded-lg text-sm font-semibold">বাতিল</button>' +
+        '<button onclick="AV.updatePackage(' + pkgId + ',' + productId + ')" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold">সংরক্ষণ</button>');
+    }).catch(apiErr);
+  };
+  AV.updatePackage = function (pkgId, productId) {
+    axios.put('/api/admin/products/packages/' + pkgId, {
+      name: v('pke-name'), quantity: Number(v('pke-qty') || 1), price: Number(v('pke-price')),
+      regular_price: Number(v('pke-regular') || 0), badge: v('pke-badge'), free_delivery: chk('pke-freedel'),
+      sort_order: Number(v('pke-sort') || 0), is_active: chk('pke-active')
+    }).then(function () { toast('প্যাকেজ আপডেট হয়েছে'); AV.managePackages(productId); }).catch(apiErr);
+  };
   AV.deletePackage = function (pkgId, productId) {
-    axios.delete('/api/admin/products/packages/' + pkgId).then(function () { AV.managePackages(productId); }).catch(apiErr);
+    confirmDlg('এই প্যাকেজটি ডিলিট করবেন?', function () {
+      axios.delete('/api/admin/products/packages/' + pkgId).then(function () { toast('মুছে ফেলা হয়েছে'); AV.managePackages(productId); }).catch(apiErr);
+    });
   };
 
   // ============ CUSTOMERS ============
