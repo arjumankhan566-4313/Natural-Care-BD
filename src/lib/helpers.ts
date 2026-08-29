@@ -109,7 +109,8 @@ export async function forwardToCapi(
       access_token: s.meta_capi_token
     }
     if (s.meta_test_event_code) payload.test_event_code = s.meta_test_event_code
-    const resp = await fetch(`https://graph.facebook.com/v18.0/${s.meta_pixel_id}/events`, {
+    const pixelId = s.meta_pixel_id.replace(/[^0-9]/g, '')
+    const resp = await fetch(`https://graph.facebook.com/v18.0/${pixelId}/events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)

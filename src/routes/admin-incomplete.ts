@@ -1,7 +1,7 @@
 // ============ Admin: Incomplete (abandoned) orders + Pixel setup ============
 import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
-import { auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone } from '../lib/helpers'
+import { auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone, forwardToCapi } from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
 
 type Env = { Bindings: Bindings; Variables: { user: AdminUser } }
@@ -123,6 +123,7 @@ inc.post('/:id/convert', async (c) => {
   }
 
   const orderNumber = `NCB-${Date.now().toString(36).toUpperCase().slice(-4)}${Math.floor(10000 + Math.random() * 90000)}`
+  const eventId = generateToken(16)
   const res = await db.prepare(`
     INSERT INTO orders (order_number, customer_id, customer_name, phone, alt_phone, address, district, upazila,
       order_note, subtotal, discount, delivery_charge, grand_total, status, risk_score, risk_level, risk_reasons,
@@ -134,7 +135,7 @@ inc.post('/:id/convert', async (c) => {
     JSON.stringify(['Converted from incomplete order by admin']),
     product.product_cost * qty,
     io.utm_source || '', io.utm_medium || '', io.utm_campaign || '', io.fbclid || '',
-    io.campaign_id || '', io.adset_id || '', io.ad_id || '', io.ip_address || '', generateToken(16)
+    io.campaign_id || '', io.adset_id || '', io.ad_id || '', io.ip_address || '', eventId
   ).run()
   const orderId = res.meta.last_row_id as number
 
@@ -144,6 +145,25 @@ inc.post('/:id/convert', async (c) => {
     .bind(orderId, `Recovered from incomplete order #${id} by ${user.username}`, user.username).run()
   await db.prepare("UPDATE incomplete_orders SET status = 'converted', order_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(orderId, id).run()
   await auditLog(db, user.id, user.username, 'convert', 'incomplete_order', String(id), `Converted to order ${orderNumber}`)
+
+  // Send Purchase event to Meta CAPI — this order came from an incomplete-order recovery
+  // (admin phoned the customer and manually confirmed), so the browser never fired a
+  // fbq('track','Purchase') call for it. Without this, every recovered order was a silent
+  // gap in the Facebook ad campaign's Purchase conversion count.
+  await db.prepare(
+    `INSERT OR IGNORE INTO tracking_events (event_id, event_name, event_data, source_url, ip_address, user_agent, fbclid)
+     VALUES (?, 'Purchase', ?, '', ?, '', ?)`
+  ).bind(eventId, JSON.stringify({ order_number: orderNumber, value: grandTotal, currency: 'BDT' }), io.ip_address || '', io.fbclid || '').run()
+  await forwardToCapi(db, {
+    eventName: 'Purchase',
+    eventId,
+    sourceUrl: io.source_url || '',
+    ip: io.ip_address || '',
+    ua: io.user_agent || '',
+    fbclid: io.fbclid || '',
+    fbclidTs: '',
+    customData: { value: grandTotal, currency: 'BDT', content_ids: [String(product.id)], order_number: orderNumber }
+  })
 
   return c.json({ success: true, order_id: orderId, order_number: orderNumber })
 })
@@ -197,8 +217,9 @@ pixel.put('/', async (c) => {
   for (const [key, value] of Object.entries(body)) {
     if (!PIXEL_KEYS.includes(key)) continue
     if (typeof value !== 'string' && typeof value !== 'number') continue
-    const v = String(value)
+    let v = String(value).trim()
     if (PIXEL_SECRET.includes(key) && v === '••••••••') continue
+    if (key === 'meta_pixel_id') v = v.replace(/[^0-9]/g, '')
     await setSetting(db, key, v, 'tracking')
     updated.push(key)
   }
@@ -231,7 +252,8 @@ pixel.post('/test-event', async (c) => {
   }
   if (s.meta_test_event_code) payload.test_event_code = s.meta_test_event_code
   try {
-    const resp = await fetch(`https://graph.facebook.com/v18.0/${s.meta_pixel_id}/events`, {
+    const pixelId = s.meta_pixel_id.replace(/[^0-9]/g, '')
+    const resp = await fetch(`https://graph.facebook.com/v18.0/${pixelId}/events`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
     })
     const txt = await resp.text()
