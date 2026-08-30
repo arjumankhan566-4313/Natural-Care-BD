@@ -270,23 +270,76 @@ img { max-width: 100%; }
    (self-contained perspective() in each transform — works at any
    DOM nesting depth, no ancestor `perspective` property needed)
    ============================================================ */
-/* ZOOM-BUG FIX: header logo + brand name now enter with a simple fade
-   (no rotateY/rotateX/scale/perspective — those read as zooming). */
+/* PROFESSIONAL 3D LOGO — enterprise-grade, fully self-contained.
+   The animation lives INSIDE the logo's own box (fixed-size inline-flex span),
+   so it can never move page layout or feel like page zoom (the old bug came
+   from page-wide mousemove tilt — none of that here, pure keyframes).
+   Sequence: (1) 3D coin-flip entrance with depth, (2) continuous gentle
+   3D float + soft breathing glow, (3) periodic shine sweep — the same
+   treatment big brand sites give their header mark. */
 .logo-3d-card {
   display: inline-flex;
-  animation: logo3dIn .6s ease both;
+  position: relative;
+  border-radius: 14px;
+  isolation: isolate;
+  transform-style: preserve-3d;
+  animation:
+    logoCoinIn 1s cubic-bezier(.22,1.2,.36,1) both,
+    logoFloat3d 5.5s ease-in-out 1.2s infinite;
 }
-@keyframes logo3dIn {
-  0%   { opacity: 0; }
-  100% { opacity: 1; }
+@keyframes logoCoinIn {
+  0%   { opacity: 0; transform: perspective(600px) rotateY(-100deg) scale(.7); }
+  60%  { opacity: 1; transform: perspective(600px) rotateY(14deg) scale(1.04); }
+  80%  { transform: perspective(600px) rotateY(-6deg) scale(1); }
+  100% { opacity: 1; transform: perspective(600px) rotateY(0) scale(1); }
 }
+@keyframes logoFloat3d {
+  0%, 100% { transform: perspective(600px) rotateY(0deg) rotateX(0deg) translateY(0); }
+  25%      { transform: perspective(600px) rotateY(7deg) rotateX(2deg) translateY(-1.5px); }
+  50%      { transform: perspective(600px) rotateY(0deg) rotateX(-2deg) translateY(0); }
+  75%      { transform: perspective(600px) rotateY(-7deg) rotateX(2deg) translateY(-1.5px); }
+}
+/* breathing emerald glow behind the logo */
+.logo-3d-card::before {
+  content: ''; position: absolute; inset: -4px; z-index: -1; border-radius: 16px;
+  background: radial-gradient(circle at 50% 50%, rgba(16,185,129,.28) 0%, transparent 70%);
+  animation: logoGlowPulse 3.2s ease-in-out 1.2s infinite;
+  opacity: 0;
+}
+@keyframes logoGlowPulse {
+  0%, 100% { opacity: .25; transform: scale(.96); }
+  50%      { opacity: .7;  transform: scale(1.08); }
+}
+/* periodic diagonal shine sweep across the logo face */
+.logo-3d-card::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; z-index: 1;
+  background: linear-gradient(115deg, transparent 38%, rgba(255,255,255,.65) 50%, transparent 62%);
+  transform: translateX(-130%); pointer-events: none;
+  animation: logoShineSweep 4.8s ease-in-out 1.6s infinite;
+}
+@keyframes logoShineSweep {
+  0%, 62% { transform: translateX(-130%); }
+  80%, 100% { transform: translateX(130%); }
+}
+/* Brand name: 3D letter-space wipe entrance + slow gradient shimmer, like
+   premium SaaS headers. Text stays fully opaque after entrance. */
 .brand-name-3d-load {
   display: inline-block;
-  animation: brandName3dFlip .6s ease .1s both;
+  animation: brandNameIn .7s cubic-bezier(.16,1,.3,1) .25s both;
+  background: linear-gradient(90deg, #065f46 0%, #059669 30%, #34d399 50%, #059669 70%, #065f46 100%);
+  background-size: 220% auto;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: brandNameIn .7s cubic-bezier(.16,1,.3,1) .25s both, brandShimmer 6s linear 1.4s infinite;
 }
-@keyframes brandName3dFlip {
-  0%   { opacity: 0; transform: translateY(6px); }
-  100% { opacity: 1; transform: translateY(0); }
+@keyframes brandNameIn {
+  0%   { opacity: 0; transform: perspective(500px) translateY(8px) rotateX(35deg); }
+  100% { opacity: 1; transform: perspective(500px) translateY(0) rotateX(0); }
+}
+@keyframes brandShimmer { to { background-position: -220% center; } }
+/* Reduced motion: respect user/system preference */
+@media (prefers-reduced-motion: reduce) {
+  .logo-3d-card, .logo-3d-card::before, .logo-3d-card::after, .brand-name-3d-load { animation: none !important; opacity: 1 !important; }
 }
 
 /* ============================================================

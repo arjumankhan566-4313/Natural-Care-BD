@@ -164,7 +164,12 @@ inc.post('/:id/convert', async (c) => {
     fbclidTs: '',
     customerName: io.customer_name || '',
     customerPhone: normalizedPhone,
-    customData: { value: grandTotal, currency: 'BDT', content_ids: [String(product.id)], order_number: orderNumber }
+    customData: {
+      value: grandTotal, currency: 'BDT',
+      content_ids: [String(product.id)], content_type: 'product',
+      contents: [{ id: String(product.id), quantity: qty, item_price: unitPrice }],
+      num_items: qty, order_number: orderNumber
+    }
   })
 
   return c.json({ success: true, order_id: orderId, order_number: orderNumber })
@@ -255,7 +260,7 @@ pixel.post('/test-event', async (c) => {
   if (s.meta_test_event_code) payload.test_event_code = s.meta_test_event_code
   try {
     const pixelId = s.meta_pixel_id.replace(/[^0-9]/g, '')
-    const resp = await fetch(`https://graph.facebook.com/v18.0/${pixelId}/events`, {
+    const resp = await fetch(`https://graph.facebook.com/v21.0/${pixelId}/events`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
     })
     const txt = await resp.text()

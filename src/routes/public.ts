@@ -319,7 +319,14 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
     fbc: (body.fbc || '').slice(0, 200),
     customerName: name,
     customerPhone: phone,
-    customData: { value: grandTotal, currency: 'BDT', content_ids: resolvedItems.map(i => String(i.product_id)), order_number: orderNumber }
+    customData: {
+      value: grandTotal, currency: 'BDT',
+      content_ids: resolvedItems.map(i => String(i.product_id)),
+      content_type: 'product',
+      contents: resolvedItems.map(i => ({ id: String(i.product_id), quantity: i.quantity, item_price: i.unit_price })),
+      num_items: resolvedItems.reduce((s, i) => s + i.quantity, 0),
+      order_number: orderNumber
+    }
   }))
 
   // Mark matching incomplete order as converted (order was completed)

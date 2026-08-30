@@ -348,7 +348,7 @@
     initAutosave();
     if (product) selectPackage(product.packages.length ? product.packages[0].id : 0);
     track('PageView', {});
-    if (product) track('ViewContent', { content_name: product.name, content_ids: [String(product.id)], value: product.sale_price, currency: 'BDT' });
+    if (product) track('ViewContent', { content_name: product.name, content_ids: [String(product.id)], content_type: 'product', value: product.sale_price, currency: 'BDT' });
   }
 
   // ============ HERO BANNER SLIDER ============
@@ -473,6 +473,13 @@
     };
     form.addEventListener('input', handler);
     form.addEventListener('change', handler);
+    // Real checkout-intent signal: the first time the customer actually focuses
+    // any order-form field, fire InitiateCheckout (once). Complements the
+    // package-click trigger — together these replace the old page-load misfire.
+    form.addEventListener('focusin', function onFirstFocus() {
+      form.removeEventListener('focusin', onFirstFocus);
+      fireInitiateCheckout();
+    });
     window.addEventListener('beforeunload', function () {
       if (state.submitting) return;
       try { saveIncomplete(); } catch (e) {}
@@ -528,7 +535,7 @@
           '<h3 class="font-bold text-gray-900 mb-3"><i class="fas fa-box-open text-emerald-600 mr-1.5"></i>প্যাকেজ নির্বাচন করুন</h3>' +
           '<div class="space-y-3 mb-6" id="package-list">' +
           (pkgs.length ? pkgs.map(function (pk) {
-            return '<div class="package-card box-pop-in border-2 border-gray-200 rounded-xl p-4 flex items-center justify-between" data-pkg="' + pk.id + '" onclick="NCB.selectPackage(' + pk.id + ')">' +
+            return '<div class="package-card box-pop-in border-2 border-gray-200 rounded-xl p-4 flex items-center justify-between" data-pkg="' + pk.id + '" onclick="NCB.selectPackage(' + pk.id + ', true)">' +
               '<div class="flex items-center gap-3">' +
                 '<div class="pkg-radio w-5 h-5 rounded-full border-2 border-gray-300 flex items-center justify-center"><div class="pkg-dot w-2.5 h-2.5 rounded-full bg-emerald-600 hidden"></div></div>' +
                 '<div><div class="font-bold text-gray-900">' + esc(pk.name) +
@@ -539,7 +546,7 @@
               (pk.regular_price > pk.price ? '<div class="text-xs text-gray-400 line-through">' + money(pk.regular_price) + '</div>' : '') + '</div>' +
             '</div>';
           }).join('') :
-          '<div class="package-card box-pop-in border-2 border-gray-200 rounded-xl p-4" data-pkg="0" onclick="NCB.selectPackage(0)"><div class="font-bold">' + esc(product.name) + ' — ' + money(product.sale_price) + '</div></div>') +
+          '<div class="package-card box-pop-in border-2 border-gray-200 rounded-xl p-4" data-pkg="0" onclick="NCB.selectPackage(0, true)"><div class="font-bold">' + esc(product.name) + ' — ' + money(product.sale_price) + '</div></div>') +
           '</div>' +
 
           '<form id="order-form" onsubmit="NCB.submitOrder(event)">' +
@@ -667,7 +674,18 @@
   // ============ PACKAGE + TOTALS ============
   var selectedPkg = null;
   var checkoutTracked = false;
-  function selectPackage(pkgId) {
+  // PIXEL ACCURACY FIX: selectPackage() is ALSO auto-called once on page load
+  // (to pre-select the default package). Previously that auto-call fired the
+  // InitiateCheckout pixel for EVERY visitor — inflating the checkout count to
+  // ~equal PageView and feeding Facebook's ad optimizer garbage data. Now the
+  // event only fires on a REAL user interaction (package click / form focus).
+  function fireInitiateCheckout() {
+    if (checkoutTracked) return;
+    checkoutTracked = true;
+    var p = state.data.products[0];
+    if (p) track('InitiateCheckout', { content_ids: [String(p.id)], currency: 'BDT', value: getPricing().subtotal });
+  }
+  function selectPackage(pkgId, isUserAction) {
     selectedPkg = pkgId;
     document.querySelectorAll('.package-card').forEach(function (el) {
       var on = Number(el.dataset.pkg) === Number(pkgId);
@@ -676,11 +694,7 @@
       if (dot) dot.classList.toggle('hidden', !on);
     });
     updateTotal();
-    if (!checkoutTracked) {
-      checkoutTracked = true;
-      var p = state.data.products[0];
-      track('InitiateCheckout', { content_ids: [String(p.id)], currency: 'BDT' });
-    }
+    if (isUserAction) fireInitiateCheckout();
   }
 
   function getPricing() {
@@ -787,7 +801,14 @@
     // event_id, letting Meta de-duplicate the browser Pixel and server CAPI signals
     // into a single conversion.
     var pr = getPricing();
-    var purchaseEventId = track('Purchase', { value: pr.total, currency: 'BDT', content_ids: [String(p.id)] });
+    // content_type:'product' + contents[] per Meta spec — required for catalog/DPA
+    // matching and improves the ad account's event match quality score.
+    var purchaseEventId = track('Purchase', {
+      value: pr.total, currency: 'BDT',
+      content_ids: [String(p.id)], content_type: 'product', content_name: p.name,
+      contents: [{ id: String(p.id), quantity: 1, item_price: pr.subtotal }],
+      num_items: 1
+    });
     payload.event_id = purchaseEventId;
 
     axios.post('/api/public/orders', payload).then(function (r) {

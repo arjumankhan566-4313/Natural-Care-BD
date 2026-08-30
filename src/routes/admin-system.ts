@@ -205,8 +205,8 @@ r.get('/export/:type', requireAuth('export'), async (c) => {
   if (type === 'orders') {
     const conditions = ['o.is_deleted = 0']
     const params: any[] = []
-    if (q.date_from) { conditions.push('date(o.created_at) >= ?'); params.push(q.date_from) }
-    if (q.date_to) { conditions.push('date(o.created_at) <= ?'); params.push(q.date_to) }
+    if (q.date_from) { conditions.push("date(o.created_at, '+6 hours') >= ?"); params.push(q.date_from) }
+    if (q.date_to) { conditions.push("date(o.created_at, '+6 hours') <= ?"); params.push(q.date_to) }
     if (q.status) { conditions.push('o.status = ?'); params.push(q.status) }
     const res = await db.prepare(`
       SELECT o.order_number, o.created_at, o.customer_name, o.phone, o.address, o.district, o.status,
@@ -226,7 +226,7 @@ r.get('/export/:type', requireAuth('export'), async (c) => {
     rows = res.results || []
   } else if (type === 'profit-loss') {
     const res = await db.prepare(`
-      SELECT o.order_number, date(o.created_at) as order_date, o.status, o.grand_total as revenue,
+      SELECT o.order_number, date(o.created_at, '+6 hours') as order_date, o.status, o.grand_total as revenue,
         o.product_cost, o.packaging_cost, o.courier_cost, o.cod_charge, o.ad_cost, o.other_cost, o.net_profit
       FROM orders o WHERE o.is_deleted = 0 ORDER BY o.id DESC LIMIT 5000
     `).all()

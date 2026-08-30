@@ -19,8 +19,8 @@ r.get('/', async (c) => {
   if (q.status) { conditions.push('o.status = ?'); params.push(q.status) }
   if (q.risk_level) { conditions.push('o.risk_level = ?'); params.push(q.risk_level) }
   if (q.courier_id) { conditions.push('o.courier_id = ?'); params.push(Number(q.courier_id)) }
-  if (q.date_from) { conditions.push('date(o.created_at) >= ?'); params.push(q.date_from) }
-  if (q.date_to) { conditions.push('date(o.created_at) <= ?'); params.push(q.date_to) }
+  if (q.date_from) { conditions.push("date(o.created_at, '+6 hours') >= ?"); params.push(q.date_from) }
+  if (q.date_to) { conditions.push("date(o.created_at, '+6 hours') <= ?"); params.push(q.date_to) }
   if (q.campaign) { conditions.push('(o.utm_campaign LIKE ? OR o.campaign_id = ?)'); params.push(`%${q.campaign}%`, q.campaign) }
   if (q.search) {
     conditions.push('(o.order_number LIKE ? OR o.phone LIKE ? OR o.customer_name LIKE ? OR o.tracking_id LIKE ?)')

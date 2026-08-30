@@ -32,9 +32,15 @@
           '<td class="px-3 py-2.5"><button onclick="AV.deleteAdSpend(' + a.id + ')" class="text-red-400"><i class="fas fa-trash-can"></i></button></td></tr>';
       }).join('');
       var cpoRows = d.campaign_cpo.map(function (x) {
+        var roasBadge = x.roas != null
+          ? '<span class="px-2 py-0.5 rounded-full text-xs font-bold ' + (x.roas >= 2 ? 'bg-emerald-100 text-emerald-700' : x.roas >= 1 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600') + '">' + x.roas + 'x</span>'
+          : '<span class="text-gray-300">—</span>';
         return '<tr class="border-b border-gray-50"><td class="px-3 py-2.5 font-semibold">' + esc(x.campaign_name) + '</td>' +
-          '<td class="px-3 py-2.5">' + money(x.total_spend_bdt) + '</td><td class="px-3 py-2.5">' + x.attributed_orders + '</td>' +
-          '<td class="px-3 py-2.5 font-bold text-emerald-700">' + (x.cost_per_order != null ? money(x.cost_per_order) : '—') + '</td></tr>';
+          '<td class="px-3 py-2.5">' + money(x.total_spend_bdt) + (x.total_spend_usd > 0 ? '<div class="text-[10px] text-gray-400">$' + x.total_spend_usd + '</div>' : '') + '</td>' +
+          '<td class="px-3 py-2.5">' + x.attributed_orders + '<div class="text-[10px] text-gray-400">ডেলিভারড: ' + (x.delivered_orders || 0) + '</div></td>' +
+          '<td class="px-3 py-2.5 font-bold text-emerald-700">' + (x.cost_per_order != null ? money(x.cost_per_order) : '—') + (x.usd_per_order != null ? '<div class="text-[10px] font-normal text-gray-400">$' + x.usd_per_order + '/অর্ডার</div>' : '') + '</td>' +
+          '<td class="px-3 py-2.5">' + money(x.delivered_revenue || 0) + '</td>' +
+          '<td class="px-3 py-2.5">' + roasBadge + '</td></tr>';
       }).join('');
       var srcRows = mk.sources.map(function (x) {
         return '<tr class="border-b border-gray-50"><td class="px-3 py-2.5 font-semibold">' + esc(x.source) + '</td><td class="px-3 py-2.5">' + x.orders + '</td><td class="px-3 py-2.5">' + money(x.revenue) + '</td></tr>';
@@ -49,7 +55,7 @@
         sectionCard('<i class="fas fa-dollar-sign text-purple-600 mr-2"></i>অ্যাড খরচ (Ad Spend)',
           tbl(['ক্যাম্পেইন', 'তারিখ', 'খরচ', 'BDT', ''], spendRows),
           '<button onclick="AV.addAdSpendModal()" class="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-bold"><i class="fas fa-plus mr-1"></i>অ্যাড খরচ যোগ</button>') +
-        sectionCard('<i class="fas fa-calculator text-purple-600 mr-2"></i>Cost Per Order (CPO)', tbl(['ক্যাম্পেইন', 'মোট খরচ', 'অর্ডার', 'CPO'], cpoRows)) +
+        sectionCard('<i class="fas fa-calculator text-purple-600 mr-2"></i>ক্যাম্পেইন ROI — কত ডলারে কয়টা অর্ডার', tbl(['ক্যাম্পেইন', 'মোট খরচ', 'অর্ডার', 'CPO (খরচ/অর্ডার)', 'ডেলিভারড রেভিনিউ', 'ROAS'], cpoRows)) +
         '<div class="grid lg:grid-cols-2 gap-5">' +
           sectionCard('অর্ডার সোর্স (শেষ ৩০ দিন)', tbl(['Source', 'অর্ডার', 'রেভিনিউ'], srcRows)) +
           sectionCard('ক্যাম্পেইন পারফরম্যান্স', tbl(['Campaign', 'অর্ডার', 'রেভিনিউ', 'অ্যাড খরচ'], campRows)) +

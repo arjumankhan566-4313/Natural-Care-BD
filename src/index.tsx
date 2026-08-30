@@ -14,7 +14,7 @@ import adminIncomplete from './routes/admin-incomplete'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Cache-busting version for static JS/CSS — bump on every deploy of frontend assets
-const ASSET_V = '15'
+const ASSET_V = '16'
 
 // CORS for API routes
 app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }))
@@ -232,6 +232,20 @@ table{font-size:0.875rem}
 .count-up-num{display:inline-block}
 .kpi-card-in{animation:kpiCardIn .45s ease both}
 @keyframes kpiCardIn{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+/* ===== ENTERPRISE DASHBOARD 3D ===== */
+.card3d{transform-style:preserve-3d;transition:transform .18s ease-out,box-shadow .25s ease;will-change:transform}
+.card3d:hover{box-shadow:0 18px 40px -12px rgba(6,78,59,.22),0 4px 12px rgba(0,0,0,.06)}
+.kpi-hero{box-shadow:0 8px 24px -8px rgba(0,0,0,.28);position:relative}
+.kpi-hero .kpi-glow{position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at var(--gx,70%) var(--gy,20%),rgba(255,255,255,.22) 0%,transparent 55%);transition:opacity .2s}
+.kpi-hero .kpi-ico{width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,.16);display:inline-flex;align-items:center;justify-content:center;font-size:.95rem;backdrop-filter:blur(4px);box-shadow:inset 0 1px 0 rgba(255,255,255,.25)}
+.kpi-hero::after{content:'';position:absolute;top:0;left:-70%;width:45%;height:100%;background:linear-gradient(115deg,transparent 0,rgba(255,255,255,.18) 50%,transparent 100%);transform:skewX(-18deg);animation:kpiHeroShine 5.5s ease-in-out infinite}
+@keyframes kpiHeroShine{0%,68%{left:-70%}88%,100%{left:140%}}
+.dash-command-bar{background:linear-gradient(120deg,#064e3b 0%,#065f46 55%,#047857 100%);box-shadow:0 8px 24px -10px rgba(6,78,59,.5);position:relative;overflow:hidden}
+.dash-command-bar::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px);background-size:26px 26px;pointer-events:none;mask-image:linear-gradient(115deg,rgba(0,0,0,.9),transparent 75%)}
+.stat-mini .stat-ico{transition:transform .3s cubic-bezier(.34,1.56,.64,1)}
+.stat-mini:hover .stat-ico{transform:scale(1.14) rotateY(14deg)}
+.funnel-fill-anim{animation:funnelGrow 1s cubic-bezier(.22,1,.36,1) both;transform-origin:left}
+@keyframes funnelGrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 </style>
 </head>
 <body class="bg-gray-100">

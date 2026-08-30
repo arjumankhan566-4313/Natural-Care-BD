@@ -35,9 +35,13 @@
   // ============ ENTERPRISE DASHBOARD (real-time) ============
   var dashRange = 'today';
   var dashTimer = null;       // auto-refresh timer (real-time)
+  var dashClockTimer = null;  // live BD-time clock in the hero strip
   var DASH_REFRESH_MS = 30000;
 
-  function stopDashAutoRefresh() { if (dashTimer) { clearInterval(dashTimer); dashTimer = null; } }
+  function stopDashAutoRefresh() {
+    if (dashTimer) { clearInterval(dashTimer); dashTimer = null; }
+    if (dashClockTimer) { clearInterval(dashClockTimer); dashClockTimer = null; }
+  }
   function startDashAutoRefresh() {
     stopDashAutoRefresh();
     dashTimer = setInterval(function () {
@@ -45,6 +49,12 @@
       if (S.route !== 'dashboard' || document.hidden) return;
       viewDashboard(true); // silent refresh
     }, DASH_REFRESH_MS);
+    // Live ticking clock (Asia/Dhaka)
+    dashClockTimer = setInterval(function () {
+      var el = document.getElementById('dash-clock');
+      if (!el) return;
+      try { el.textContent = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Dhaka', hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch (e) {}
+    }, 1000);
   }
 
   function trendBadge(change) {
@@ -53,10 +63,69 @@
       '<i class="fas fa-arrow-' + (up ? 'up' : 'down') + '"></i>' + Math.abs(change) + '%</span>';
   }
 
-  function funnelBar(label, val, maxVal, color) {
+  function funnelBar(label, val, maxVal, color, icon) {
     var w = maxVal > 0 ? Math.max(2, Math.round((val / maxVal) * 100)) : 2;
-    return '<div class="mb-2.5"><div class="flex justify-between text-xs mb-1"><span class="font-semibold text-gray-600">' + label + '</span><span class="font-bold text-gray-900">' + Number(val).toLocaleString('en-US') + '</span></div>' +
-      '<div class="h-2.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full rounded-full transition-all duration-700" style="width:' + w + '%;background:' + color + '"></div></div></div>';
+    var dropOff = maxVal > 0 ? Math.round((val / maxVal) * 100) : 0;
+    return '<div class="mb-3"><div class="flex justify-between text-xs mb-1"><span class="font-semibold text-gray-600">' + (icon ? '<i class="fas ' + icon + ' mr-1.5 opacity-60"></i>' : '') + label + '</span><span class="font-bold text-gray-900">' + Number(val).toLocaleString('en-US') + ' <span class="text-gray-400 font-medium">(' + dropOff + '%)</span></span></div>' +
+      '<div class="h-3 bg-gray-100 rounded-full overflow-hidden"><div class="h-full rounded-full funnel-fill-anim" style="width:' + w + '%;background:linear-gradient(90deg,' + color + 'cc,' + color + ')"></div></div></div>';
+  }
+
+  // ---------- 3D tilt for dashboard cards (contained per-card, desktop only) ----------
+  // Each .card3d tilts ONLY itself on its own mousemove — never affects page layout
+  // or scroll (the earlier "zoom bug" came from page-wide mouse tracking; this is scoped).
+  function init3DTilt(scope) {
+    if (!window.matchMedia || !window.matchMedia('(pointer:fine)').matches) return;
+    (scope || document).querySelectorAll('.card3d').forEach(function (el) {
+      if (el.__tiltBound) return;
+      el.__tiltBound = true;
+      el.addEventListener('mousemove', function (e) {
+        var r = el.getBoundingClientRect();
+        var px = (e.clientX - r.left) / r.width - 0.5;
+        var py = (e.clientY - r.top) / r.height - 0.5;
+        el.style.transform = 'perspective(900px) rotateX(' + (-py * 7).toFixed(2) + 'deg) rotateY(' + (px * 7).toFixed(2) + 'deg) translateY(-2px)';
+        el.style.setProperty('--gx', ((px + 0.5) * 100).toFixed(1) + '%');
+        el.style.setProperty('--gy', ((py + 0.5) * 100).toFixed(1) + '%');
+      });
+      el.addEventListener('mouseleave', function () {
+        el.style.transform = 'perspective(900px) rotateX(0) rotateY(0) translateY(0)';
+      });
+    });
+  }
+
+  // ---------- Bangladesh geo intelligence (division rollup from district data) ----------
+  var BD_DIVISIONS = {
+    'ঢাকা': ['ঢাকা', 'গাজীপুর', 'নারায়ণগঞ্জ', 'মুন্সিগঞ্জ', 'মানিকগঞ্জ', 'নরসিংদী', 'টাঙ্গাইল', 'কিশোরগঞ্জ', 'ফরিদপুর', 'গোপালগঞ্জ', 'মাদারীপুর', 'রাজবাড়ী', 'শরীয়তপুর'],
+    'চট্টগ্রাম': ['চট্টগ্রাম', 'কক্সবাজার', 'কুমিল্লা', 'ব্রাহ্মণবাড়িয়া', 'চাঁদপুর', 'লক্ষ্মীপুর', 'নোয়াখালী', 'ফেনী', 'খাগড়াছড়ি', 'রাঙ্গামাটি', 'বান্দরবান'],
+    'রাজশাহী': ['রাজশাহী', 'বগুড়া', 'পাবনা', 'সিরাজগঞ্জ', 'নওগাঁ', 'নাটোর', 'জয়পুরহাট', 'চাঁপাইনবাবগঞ্জ'],
+    'খুলনা': ['খুলনা', 'যশোর', 'সাতক্ষীরা', 'বাগেরহাট', 'ঝিনাইদহ', 'মাগুরা', 'নড়াইল', 'কুষ্টিয়া', 'চুয়াডাঙ্গা', 'মেহেরপুর'],
+    'বরিশাল': ['বরিশাল', 'পটুয়াখালী', 'ভোলা', 'পিরোজপুর', 'বরগুনা', 'ঝালকাঠি'],
+    'সিলেট': ['সিলেট', 'মৌলভীবাজার', 'হবিগঞ্জ', 'সুনামগঞ্জ'],
+    'রংপুর': ['রংপুর', 'দিনাজপুর', 'গাইবান্ধা', 'কুড়িগ্রাম', 'লালমনিরহাট', 'নীলফামারী', 'পঞ্চগড়', 'ঠাকুরগাঁও'],
+    'ময়মনসিংহ': ['ময়মনসিংহ', 'জামালপুর', 'নেত্রকোণা', 'শেরপুর']
+  };
+  var DIVISION_COLORS = { 'ঢাকা': '#059669', 'চট্টগ্রাম': '#0ea5e9', 'রাজশাহী': '#8b5cf6', 'খুলনা': '#f59e0b', 'বরিশাল': '#ef4444', 'সিলেট': '#06b6d4', 'রংপুর': '#ec4899', 'ময়মনসিংহ': '#84cc16' };
+  function districtToDivision(district) {
+    for (var div in BD_DIVISIONS) {
+      if (BD_DIVISIONS[div].some(function (d) { return district.indexOf(d) !== -1 || d.indexOf(district) !== -1; })) return div;
+    }
+    return 'অন্যান্য';
+  }
+
+  // Enterprise KPI hero-card: gradient face, 3D tilt, glow spot, count-up value, trend slot
+  function kpiHero(label, raw, prefix, suffix, icon, grad, delay, sub) {
+    return '<div class="card3d kpi-hero rounded-2xl p-4 text-white relative overflow-hidden kpi-card-in" style="background:' + grad + ';animation-delay:' + delay + 's">' +
+      '<div class="kpi-glow"></div>' +
+      '<div class="relative z-10">' +
+        '<div class="flex items-center justify-between mb-2"><span class="text-[11px] font-semibold opacity-85">' + label + '</span><span class="kpi-ico"><i class="fas ' + icon + '"></i></span></div>' +
+        '<div class="text-2xl font-bold tracking-tight"><span class="count-up-num" data-target="' + (raw || 0) + '" data-prefix="' + (prefix || '') + '" data-suffix="' + (suffix || '') + '">' + (prefix || '') + '0' + (suffix || '') + '</span></div>' +
+        (sub ? '<div class="text-[11px] opacity-80 mt-1">' + sub + '</div>' : '') +
+      '</div></div>';
+  }
+
+  function statMini(label, raw, icon, color, delay, suffix) {
+    return '<div class="card3d bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3 kpi-card-in stat-mini" style="animation-delay:' + delay + 's">' +
+      '<div class="w-11 h-11 rounded-xl ' + color + ' flex items-center justify-center shrink-0 stat-ico"><i class="fas ' + icon + '"></i></div>' +
+      '<div class="min-w-0"><div class="text-xs text-gray-500 truncate">' + label + '</div><div class="font-bold text-gray-900 text-lg"><span class="count-up-num" data-target="' + (raw || 0) + '" data-suffix="' + (suffix || '') + '">0</span></div></div></div>';
   }
 
   function viewDashboard(silent) {
@@ -83,84 +152,95 @@
 
       var topProdHtml = (ent.top_products || []).length
         ? ent.top_products.map(function (p, i) {
+            var medals = ['🥇', '🥈', '🥉'];
             return '<div class="flex items-center gap-3 py-2 border-b border-gray-50 text-sm">' +
-              '<span class="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold flex items-center justify-center shrink-0">' + (i + 1) + '</span>' +
+              '<span class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold flex items-center justify-center shrink-0">' + (medals[i] || (i + 1)) + '</span>' +
               '<div class="flex-1 min-w-0"><div class="font-semibold truncate">' + esc(p.product_name) + '</div><div class="text-[11px] text-gray-400">' + p.orders + ' অর্ডার</div></div>' +
               '<div class="text-right shrink-0"><div class="font-bold">' + p.units + ' পিস</div><div class="text-[11px] text-gray-400">' + money(p.value) + '</div></div></div>';
           }).join('')
         : '<div class="text-center text-gray-400 py-6 text-sm">এই রেঞ্জে কোনো বিক্রি নেই</div>';
 
-      var distMax = Math.max.apply(null, (ent.top_districts || []).map(function (x) { return x.orders; }).concat([1]));
-      var distHtml = (ent.top_districts || []).length
-        ? ent.top_districts.map(function (x) {
+      // ---- GEO INTELLIGENCE: division rollup + top districts (like int'l dashboards' region map) ----
+      var allDist = ent.top_districts || [];
+      var divAgg = {};
+      allDist.forEach(function (x) {
+        var div = districtToDivision(x.district);
+        if (!divAgg[div]) divAgg[div] = { orders: 0, revenue: 0 };
+        divAgg[div].orders += x.orders;
+        divAgg[div].revenue += x.revenue;
+      });
+      var divRows = Object.keys(divAgg).sort(function (a, b) { return divAgg[b].orders - divAgg[a].orders; });
+      var totalGeoOrders = allDist.reduce(function (s, x) { return s + x.orders; }, 0) || 1;
+      var distMax = Math.max.apply(null, allDist.map(function (x) { return x.orders; }).concat([1]));
+      var top10 = allDist.slice(0, 10);
+      var distHtml = top10.length
+        ? top10.map(function (x, i) {
             var w = Math.max(4, Math.round((x.orders / distMax) * 100));
-            return '<div class="mb-2"><div class="flex justify-between text-xs mb-0.5"><span class="font-semibold text-gray-600">' + esc(x.district) + '</span><span class="text-gray-500">' + x.orders + ' অর্ডার | ' + money(x.revenue) + '</span></div>' +
-              '<div class="h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-emerald-500 to-emerald-300 rounded-full" style="width:' + w + '%"></div></div></div>';
+            var share = Math.round((x.orders / totalGeoOrders) * 100);
+            var col = DIVISION_COLORS[districtToDivision(x.district)] || '#059669';
+            return '<div class="mb-2.5"><div class="flex justify-between text-xs mb-1"><span class="font-semibold text-gray-700"><span class="inline-block w-4 text-gray-400">' + (i + 1) + '</span>' + esc(x.district) + ' <span class="text-[10px] text-gray-400">(' + share + '%)</span></span><span class="text-gray-500">' + x.orders + ' | ' + money(x.revenue) + '</span></div>' +
+              '<div class="h-2.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full rounded-full funnel-fill-anim" style="width:' + w + '%;background:linear-gradient(90deg,' + col + '99,' + col + ')"></div></div></div>';
           }).join('')
-        : '<div class="text-center text-gray-400 py-6 text-sm">ডেটা নেই</div>';
+        : '<div class="text-center text-gray-400 py-6 text-sm">এই রেঞ্জে ডেটা নেই</div>';
 
       setContent(
-        // ===== TOP BAR: range + live indicator =====
-        '<div class="flex items-center justify-between mb-4 flex-wrap gap-3">' +
+        // ===== COMMAND BAR =====
+        '<div class="dash-command-bar rounded-2xl px-4 py-3 mb-4 flex items-center justify-between flex-wrap gap-3 kpi-card-in">' +
           '<div class="flex items-center gap-3 flex-wrap">' +
-            '<span class="inline-flex items-center gap-2 bg-white shadow-sm rounded-full px-3.5 py-1.5 text-xs font-bold text-gray-700"><span class="relative flex h-2.5 w-2.5"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>লাইভ — প্রতি ৩০ সেকেন্ডে অটো আপডেট</span>' +
-            '<span class="text-xs text-gray-500">' + d.range.from + (d.range.from !== d.range.to ? ' → ' + d.range.to : '') + ' | $1 = ৳' + d.usd_rate + '</span>' +
+            '<span class="inline-flex items-center gap-2 bg-white/10 backdrop-blur rounded-full px-3.5 py-1.5 text-xs font-bold text-white"><span class="relative flex h-2.5 w-2.5"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400"></span></span>LIVE — ৩০ সেকেন্ডে অটো আপডেট</span>' +
+            '<span class="text-xs text-emerald-100/90 font-medium"><i class="far fa-calendar mr-1"></i>' + d.range.from + (d.range.from !== d.range.to ? ' → ' + d.range.to : '') + '</span>' +
+            '<span class="text-xs text-emerald-100/90 font-mono"><i class="far fa-clock mr-1"></i><span id="dash-clock">--:--:--</span> BD</span>' +
+            '<span class="text-xs text-emerald-100/70">$1 = ৳' + d.usd_rate + '</span>' +
           '</div>' +
           '<div class="flex items-center gap-2">' +
-            '<button onclick="AV.dashRefresh()" class="bg-white shadow-sm rounded-lg px-3 py-2 text-sm text-gray-600 hover:text-emerald-600" title="এখনই রিফ্রেশ"><i class="fas fa-rotate"></i></button>' +
+            '<button onclick="AV.dashRefresh()" class="bg-white/10 hover:bg-white/20 text-white rounded-lg px-3 py-2 text-sm transition" title="এখনই রিফ্রেশ"><i class="fas fa-rotate"></i></button>' +
             rangeSelector(dashRange, 'AV.dashRange(this.value)') +
           '</div>' +
         '</div>' +
 
+        // ===== HERO KPIs (gradient 3D cards) =====
+        '<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">' +
+          kpiHero('মোট অর্ডার', d.total_orders, '', '', 'fa-cart-shopping', 'linear-gradient(135deg,#2563eb,#1e40af)', 0, trendBadgeLight(wc.orders_change) + ' vs গত সপ্তাহ') +
+          kpiHero('রেভিনিউ (ডেলিভারড)', d.revenue, '৳', '', 'fa-sack-dollar', 'linear-gradient(135deg,#059669,#065f46)', 0.05, trendBadgeLight(wc.revenue_change) + ' vs গত সপ্তাহ') +
+          kpiHero('নেট প্রফিট', d.net_profit, '৳', '', 'fa-arrow-trend-up', d.net_profit >= 0 ? 'linear-gradient(135deg,#10b981,#047857)' : 'linear-gradient(135deg,#ef4444,#b91c1c)', 0.1, 'মার্জিন ' + d.profit_margin + '% | ROI ' + d.roi + '%') +
+          kpiHero('অ্যাড খরচ', d.ad_spend_bdt, '৳', '', 'fa-bullhorn', 'linear-gradient(135deg,#8b5cf6,#6d28d9)', 0.15, d.ad_spend_usd ? '$' + d.ad_spend_usd + ' USD' : 'এই রেঞ্জে') +
+        '</div>' +
+
         // ===== LIVE ACTIVITY STRIP =====
-        '<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">' +
-          '<div class="bg-gradient-to-br from-emerald-600 to-emerald-800 text-white rounded-2xl p-4 kpi-card-in"><div class="text-[11px] opacity-80 mb-1"><i class="fas fa-eye mr-1"></i>লাইভ ভিজিটর (৩০ মি.)</div><div class="text-2xl font-bold"><span class="count-up-num" data-target="' + live.visitors_30m + '">0</span></div></div>' +
-          '<div class="bg-white rounded-2xl p-4 shadow-sm kpi-card-in" style="animation-delay:.05s"><div class="text-[11px] text-gray-500 mb-1"><i class="fas fa-file mr-1 text-blue-500"></i>পেজভিউ (১ ঘণ্টা)</div><div class="text-2xl font-bold text-gray-900"><span class="count-up-num" data-target="' + live.pageviews_1h + '">0</span></div></div>' +
-          '<div class="bg-white rounded-2xl p-4 shadow-sm kpi-card-in" style="animation-delay:.1s"><div class="text-[11px] text-gray-500 mb-1"><i class="fas fa-bolt mr-1 text-amber-500"></i>অর্ডার (১ ঘণ্টা)</div><div class="text-2xl font-bold text-gray-900"><span class="count-up-num" data-target="' + live.orders_1h + '">0</span></div></div>' +
-          '<div class="bg-white rounded-2xl p-4 shadow-sm kpi-card-in" style="animation-delay:.15s"><div class="text-[11px] text-gray-500 mb-1"><i class="fas fa-cart-shopping mr-1 text-emerald-500"></i>অর্ডার (২৪ ঘণ্টা)</div><div class="text-2xl font-bold text-gray-900"><span class="count-up-num" data-target="' + live.orders_24h + '">0</span></div></div>' +
-          '<div class="bg-white rounded-2xl p-4 shadow-sm kpi-card-in" style="animation-delay:.2s"><div class="text-[11px] text-gray-500 mb-1"><i class="fas fa-cart-arrow-down mr-1 text-orange-500"></i>ইনকমপ্লিট (২৪ ঘণ্টা)</div><div class="text-2xl font-bold text-gray-900"><span class="count-up-num" data-target="' + live.incomplete_24h + '">0</span></div></div>' +
+        '<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">' +
+          statMini('লাইভ ভিজিটর (৩০ মি.)', live.visitors_30m, 'fa-eye', 'bg-emerald-100 text-emerald-600', 0.18) +
+          statMini('পেজভিউ (১ ঘণ্টা)', live.pageviews_1h, 'fa-file', 'bg-blue-100 text-blue-600', 0.21) +
+          statMini('অর্ডার (১ ঘণ্টা)', live.orders_1h, 'fa-bolt', 'bg-amber-100 text-amber-600', 0.24) +
+          statMini('অর্ডার (২৪ ঘণ্টা)', live.orders_24h, 'fa-cart-shopping', 'bg-indigo-100 text-indigo-600', 0.27) +
+          statMini('ইনকমপ্লিট (২৪ ঘণ্টা)', live.incomplete_24h, 'fa-cart-arrow-down', 'bg-orange-100 text-orange-600', 0.3) +
         '</div>' +
 
-        // ===== WEEK-OVER-WEEK =====
-        '<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">' +
-          '<div class="bg-white rounded-2xl p-4 shadow-sm flex items-center justify-between kpi-card-in" style="animation-delay:.22s"><div><div class="text-xs text-gray-500 mb-1">এই সপ্তাহ vs গত সপ্তাহ (অর্ডার)</div><div class="text-xl font-bold">' + wc.orders_this + ' <span class="text-sm text-gray-400 font-normal">/ ' + wc.orders_prev + '</span></div></div>' + trendBadge(wc.orders_change) + '</div>' +
-          '<div class="bg-white rounded-2xl p-4 shadow-sm flex items-center justify-between kpi-card-in" style="animation-delay:.25s"><div><div class="text-xs text-gray-500 mb-1">এই সপ্তাহ vs গত সপ্তাহ (রেভিনিউ)</div><div class="text-xl font-bold">' + money(wc.revenue_this) + ' <span class="text-sm text-gray-400 font-normal">/ ' + money(wc.revenue_prev) + '</span></div></div>' + trendBadge(wc.revenue_change) + '</div>' +
-        '</div>' +
-
-        // ===== FINANCIAL KPIs =====
+        // ===== COST + STATUS ROW =====
         '<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">' +
-          card('মোট অর্ডার', d.total_orders, 'fa-cart-shopping', 'bg-blue-100 text-blue-600', { raw: d.total_orders }) +
-          card('রেভিনিউ (ডেলিভারড)', money(d.revenue), 'fa-sack-dollar', 'bg-emerald-100 text-emerald-600', { raw: d.revenue, prefix: '৳' }) +
-          card('নেট প্রফিট', money(d.net_profit), 'fa-arrow-trend-up', d.net_profit >= 0 ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600', { raw: d.net_profit, prefix: '৳' }) +
-          card('লস', money(d.loss), 'fa-arrow-trend-down', 'bg-red-100 text-red-500', { raw: d.loss, prefix: '৳' }) +
-        '</div>' +
-        '<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">' +
-          card('অ্যাড খরচ', money(d.ad_spend_bdt) + (d.ad_spend_usd ? ' ($' + d.ad_spend_usd + ')' : ''), 'fa-bullhorn', 'bg-purple-100 text-purple-600', { raw: d.ad_spend_bdt, prefix: '৳' }) +
           card('কুরিয়ার খরচ', money(d.courier_cost), 'fa-truck', 'bg-cyan-100 text-cyan-600', { raw: d.courier_cost, prefix: '৳' }) +
           card('প্রোডাক্ট খরচ', money(d.product_cost), 'fa-box', 'bg-amber-100 text-amber-600', { raw: d.product_cost, prefix: '৳' }) +
           card('অন্যান্য খরচ', money(d.other_expenses), 'fa-receipt', 'bg-gray-100 text-gray-600', { raw: d.other_expenses, prefix: '৳' }) +
+          card('লস', money(d.loss), 'fa-arrow-trend-down', 'bg-red-100 text-red-500', { raw: d.loss, prefix: '৳' }) +
         '</div>' +
-        '<div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">' +
+        '<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">' +
           card('পেন্ডিং', d.pending, 'fa-clock', 'bg-amber-100 text-amber-600', { raw: d.pending }) +
           card('ডেলিভারড', d.delivered, 'fa-circle-check', 'bg-green-100 text-green-600', { raw: d.delivered }) +
           card('বাতিল', d.cancelled, 'fa-circle-xmark', 'bg-red-100 text-red-500', { raw: d.cancelled }) +
           card('রিটার্নড', d.returned, 'fa-rotate-left', 'bg-orange-100 text-orange-500', { raw: d.returned }) +
-          card('মার্জিন', d.profit_margin + '%', 'fa-percent', 'bg-indigo-100 text-indigo-600', { raw: d.profit_margin, suffix: '%' }) +
-          card('ROI', d.roi + '%', 'fa-chart-pie', 'bg-pink-100 text-pink-600', { raw: d.roi, suffix: '%' }) +
         '</div>' +
 
         // ===== FUNNEL + LIVE PULSE + RISK =====
         '<div class="grid lg:grid-cols-3 gap-5 mb-5">' +
-          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.3s">' +
+          '<div class="card3d bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.3s">' +
             '<div class="flex justify-between items-center mb-4"><h3 class="font-bold"><i class="fas fa-filter text-emerald-600 mr-2"></i>কনভার্সন ফানেল</h3><span class="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg">CVR ' + fn.conversion_rate + '%</span></div>' +
-            funnelBar('পেজ ভিজিট', fn.pageview, fn.pageview, '#3b82f6') +
-            funnelBar('প্রোডাক্ট দেখেছে', fn.viewcontent, fn.pageview, '#8b5cf6') +
-            funnelBar('চেকআউট শুরু', fn.checkout, fn.pageview, '#f59e0b') +
-            funnelBar('লিড (ফর্ম পূরণ)', fn.lead, fn.pageview, '#f97316') +
-            funnelBar('অর্ডার সম্পন্ন', fn.purchase, fn.pageview, '#059669') +
+            funnelBar('পেজ ভিজিট', fn.pageview, fn.pageview, '#3b82f6', 'fa-eye') +
+            funnelBar('প্রোডাক্ট দেখেছে', fn.viewcontent, fn.pageview, '#8b5cf6', 'fa-box-open') +
+            funnelBar('চেকআউট শুরু', fn.checkout, fn.pageview, '#f59e0b', 'fa-cart-plus') +
+            funnelBar('লিড (ফর্ম পূরণ)', fn.lead, fn.pageview, '#f97316', 'fa-user-pen') +
+            funnelBar('অর্ডার সম্পন্ন', fn.purchase, fn.pageview, '#059669', 'fa-circle-check') +
           '</div>' +
-          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.34s"><h3 class="font-bold mb-4"><i class="fas fa-heart-pulse text-red-500 mr-2"></i>লাইভ পালস (২৪ ঘণ্টা)</h3><canvas id="ch-pulse" height="210"></canvas></div>' +
-          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.38s"><h3 class="font-bold mb-4"><i class="fas fa-shield-halved text-amber-500 mr-2"></i>রিস্ক ও কাস্টমার</h3>' +
+          '<div class="card3d bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.34s"><h3 class="font-bold mb-4"><i class="fas fa-heart-pulse text-red-500 mr-2"></i>লাইভ পালস (২৪ ঘণ্টা, BD টাইম)</h3><canvas id="ch-pulse" height="210"></canvas></div>' +
+          '<div class="card3d bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.38s"><h3 class="font-bold mb-4"><i class="fas fa-shield-halved text-amber-500 mr-2"></i>রিস্ক ও কাস্টমার</h3>' +
             '<canvas id="ch-risk" height="130"></canvas>' +
             '<div class="grid grid-cols-2 gap-2 mt-4 text-center">' +
               '<div class="bg-gray-50 rounded-xl p-2.5"><div class="text-lg font-bold">' + ent.customers.total + '</div><div class="text-[11px] text-gray-500">মোট কাস্টমার</div></div>' +
@@ -173,17 +253,30 @@
 
         // ===== REVENUE/ORDERS CHARTS =====
         '<div class="grid lg:grid-cols-2 gap-5 mb-5">' +
-          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.42s"><h3 class="font-bold mb-4">রেভিনিউ ও প্রফিট</h3><canvas id="ch-rev" height="220"></canvas></div>' +
-          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.46s"><h3 class="font-bold mb-4">অর্ডার ও অ্যাড খরচ</h3><canvas id="ch-ord" height="220"></canvas></div>' +
+          '<div class="card3d bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.42s"><h3 class="font-bold mb-4"><i class="fas fa-chart-area text-emerald-600 mr-2"></i>রেভিনিউ ও প্রফিট</h3><canvas id="ch-rev" height="220"></canvas></div>' +
+          '<div class="card3d bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.46s"><h3 class="font-bold mb-4"><i class="fas fa-chart-column text-purple-600 mr-2"></i>অর্ডার ও অ্যাড খরচ</h3><canvas id="ch-ord" height="220"></canvas></div>' +
         '</div>' +
 
-        // ===== DISTRICTS + TOP PRODUCTS + LOW STOCK + RECOVERY =====
+        // ===== GEO INTELLIGENCE (division + district) =====
         '<div class="grid lg:grid-cols-3 gap-5 mb-5">' +
-          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.5s"><h3 class="font-bold mb-4"><i class="fas fa-map-location-dot text-blue-500 mr-2"></i>টপ জেলা</h3>' + distHtml + '</div>' +
-          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.54s"><h3 class="font-bold mb-4"><i class="fas fa-trophy text-amber-500 mr-2"></i>টপ প্রোডাক্ট</h3>' + topProdHtml + '</div>' +
+          '<div class="card3d bg-white rounded-2xl p-5 shadow-sm kpi-card-in lg:col-span-2" style="animation-delay:.5s">' +
+            '<div class="flex justify-between items-center mb-4"><h3 class="font-bold"><i class="fas fa-map-location-dot text-blue-500 mr-2"></i>লোকেশন ইন্টেলিজেন্স — কোন জেলা থেকে অর্ডার আসছে</h3><span class="text-xs text-gray-400">' + allDist.length + ' জেলা</span></div>' +
+            '<div class="grid md:grid-cols-2 gap-5">' +
+              '<div>' + distHtml + '</div>' +
+              '<div><canvas id="ch-division" height="200"></canvas>' +
+                '<div class="grid grid-cols-2 gap-1.5 mt-3">' +
+                  divRows.map(function (dv) {
+                    var share = Math.round((divAgg[dv].orders / totalGeoOrders) * 100);
+                    return '<div class="flex items-center gap-1.5 text-[11px]"><span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:' + (DIVISION_COLORS[dv] || '#94a3b8') + '"></span><span class="font-semibold text-gray-700 truncate">' + dv + '</span><span class="text-gray-400 ml-auto">' + divAgg[dv].orders + ' (' + share + '%)</span></div>';
+                  }).join('') +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
           '<div class="space-y-5">' +
-            '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.58s"><div class="flex justify-between items-center mb-3"><h3 class="font-bold"><i class="fas fa-triangle-exclamation text-red-500 mr-2"></i>স্টক অ্যালার্ট</h3><a href="#/products" class="text-xs text-emerald-600 font-semibold">প্রোডাক্ট →</a></div>' + lowStockHtml + '</div>' +
-            '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.62s"><div class="flex justify-between items-center mb-3"><h3 class="font-bold"><i class="fas fa-life-ring text-orange-500 mr-2"></i>লিড রিকভারি</h3><a href="#/incomplete" class="text-xs text-emerald-600 font-semibold">বিস্তারিত →</a></div>' +
+            '<div class="card3d bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.54s"><h3 class="font-bold mb-4"><i class="fas fa-trophy text-amber-500 mr-2"></i>টপ প্রোডাক্ট</h3>' + topProdHtml + '</div>' +
+            '<div class="card3d bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.58s"><div class="flex justify-between items-center mb-3"><h3 class="font-bold"><i class="fas fa-triangle-exclamation text-red-500 mr-2"></i>স্টক অ্যালার্ট</h3><a href="#/products" class="text-xs text-emerald-600 font-semibold">প্রোডাক্ট →</a></div>' + lowStockHtml + '</div>' +
+            '<div class="card3d bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.62s"><div class="flex justify-between items-center mb-3"><h3 class="font-bold"><i class="fas fa-life-ring text-orange-500 mr-2"></i>লিড রিকভারি</h3><a href="#/incomplete" class="text-xs text-emerald-600 font-semibold">বিস্তারিত →</a></div>' +
               '<div class="grid grid-cols-3 gap-2 text-center">' +
                 '<div class="bg-gray-50 rounded-xl p-2.5"><div class="text-lg font-bold">' + ent.incomplete.total + '</div><div class="text-[11px] text-gray-500">ইনকমপ্লিট</div></div>' +
                 '<div class="bg-emerald-50 rounded-xl p-2.5"><div class="text-lg font-bold text-emerald-700">' + ent.incomplete.converted + '</div><div class="text-[11px] text-gray-500">কনভার্টেড</div></div>' +
@@ -195,51 +288,78 @@
 
         // ===== RECENT ORDERS =====
         '<div class="bg-white rounded-2xl shadow-sm overflow-hidden kpi-card-in" style="animation-delay:.66s">' +
-          '<div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center"><h3 class="font-bold">সাম্প্রতিক অর্ডার</h3><a href="#/orders" class="text-sm text-emerald-600 font-semibold">সব দেখুন →</a></div>' +
+          '<div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center"><h3 class="font-bold"><i class="fas fa-clock-rotate-left text-emerald-600 mr-2"></i>সাম্প্রতিক অর্ডার</h3><a href="#/orders" class="text-sm text-emerald-600 font-semibold">সব দেখুন →</a></div>' +
           orderTable(ords) +
         '</div>',
         'ড্যাশবোর্ড');
 
       if (H.runCountUps) H.runCountUps();
+      init3DTilt(document.getElementById('main-content'));
 
       // ---- Charts ----
       var days = (ch.daily || []).map(function (x) { return x.day.slice(5); });
       var adMap = {};
       (ch.ad_daily || []).forEach(function (x) { adMap[x.day] = x.spend; });
-      charts.rev = new Chart(document.getElementById('ch-rev'), {
+      var revCtx = document.getElementById('ch-rev');
+      var revGrad = null;
+      try {
+        var g = revCtx.getContext('2d').createLinearGradient(0, 0, 0, 240);
+        g.addColorStop(0, 'rgba(5,150,105,0.28)'); g.addColorStop(1, 'rgba(5,150,105,0)');
+        revGrad = g;
+      } catch (e) {}
+      charts.rev = new Chart(revCtx, {
         type: 'line',
         data: { labels: days, datasets: [
-          { label: 'রেভিনিউ', data: (ch.daily || []).map(function (x) { return x.revenue; }), borderColor: '#059669', backgroundColor: 'rgba(5,150,105,0.08)', fill: true, tension: 0.35 },
-          { label: 'প্রফিট', data: (ch.daily || []).map(function (x) { return x.profit; }), borderColor: '#6366f1', tension: 0.35 }
+          { label: 'রেভিনিউ', data: (ch.daily || []).map(function (x) { return x.revenue; }), borderColor: '#059669', backgroundColor: revGrad || 'rgba(5,150,105,0.08)', fill: true, tension: 0.4, borderWidth: 2.5, pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: '#059669' },
+          { label: 'প্রফিট', data: (ch.daily || []).map(function (x) { return x.profit; }), borderColor: '#6366f1', tension: 0.4, borderWidth: 2, borderDash: [5, 3], pointRadius: 2 }
         ] },
-        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+        options: { responsive: true, animation: { duration: 900, easing: 'easeOutQuart' }, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom' }, tooltip: { backgroundColor: 'rgba(6,78,59,.92)', padding: 12, cornerRadius: 10 } } }
       });
       charts.ord = new Chart(document.getElementById('ch-ord'), {
         type: 'bar',
         data: { labels: days, datasets: [
-          { label: 'অর্ডার', data: (ch.daily || []).map(function (x) { return x.orders; }), backgroundColor: '#34d399' },
-          { label: 'অ্যাড খরচ (৳)', data: (ch.daily || []).map(function (x) { return adMap[x.day] || 0; }), backgroundColor: '#a78bfa' }
+          { label: 'অর্ডার', data: (ch.daily || []).map(function (x) { return x.orders; }), backgroundColor: '#34d399', borderRadius: 6, maxBarThickness: 26 },
+          { label: 'অ্যাড খরচ (৳)', data: (ch.daily || []).map(function (x) { return adMap[x.day] || 0; }), backgroundColor: '#a78bfa', borderRadius: 6, maxBarThickness: 26 }
         ] },
-        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+        options: { responsive: true, animation: { duration: 900, easing: 'easeOutQuart' }, plugins: { legend: { position: 'bottom' }, tooltip: { backgroundColor: 'rgba(30,27,75,.92)', padding: 12, cornerRadius: 10 } } }
       });
       // Live pulse: hourly orders (last 24h)
       var hrs = (ent.hourly || []).map(function (x) { return x.hour; });
       charts.pulse = new Chart(document.getElementById('ch-pulse'), {
         type: 'line',
         data: { labels: hrs, datasets: [
-          { label: 'অর্ডার', data: (ent.hourly || []).map(function (x) { return x.orders; }), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)', fill: true, tension: 0.4, pointRadius: 2 }
+          { label: 'অর্ডার', data: (ent.hourly || []).map(function (x) { return x.orders; }), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', fill: true, tension: 0.45, pointRadius: 2, borderWidth: 2 }
         ] },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+        options: { responsive: true, animation: { duration: 900 }, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
       });
       // Risk doughnut
       charts.risk = new Chart(document.getElementById('ch-risk'), {
         type: 'doughnut',
-        data: { labels: ['🟢 Low', '🟡 Medium', '🔴 High'], datasets: [{ data: [ent.risk_mix.low, ent.risk_mix.medium, ent.risk_mix.high], backgroundColor: ['#10b981', '#f59e0b', '#ef4444'], borderWidth: 0 }] },
-        options: { responsive: true, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } } }
+        data: { labels: ['🟢 Low', '🟡 Medium', '🔴 High'], datasets: [{ data: [ent.risk_mix.low, ent.risk_mix.medium, ent.risk_mix.high], backgroundColor: ['#10b981', '#f59e0b', '#ef4444'], borderWidth: 0, hoverOffset: 8 }] },
+        options: { responsive: true, cutout: '65%', animation: { animateRotate: true, duration: 900 }, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } } }
       });
+      // Division doughnut (geo intelligence)
+      var divCanvas = document.getElementById('ch-division');
+      if (divCanvas && divRows.length) {
+        charts.division = new Chart(divCanvas, {
+          type: 'doughnut',
+          data: { labels: divRows, datasets: [{ data: divRows.map(function (dv) { return divAgg[dv].orders; }), backgroundColor: divRows.map(function (dv) { return DIVISION_COLORS[dv] || '#94a3b8'; }), borderWidth: 2, borderColor: '#fff', hoverOffset: 10 }] },
+          options: { responsive: true, cutout: '58%', animation: { animateRotate: true, animateScale: true, duration: 1100, easing: 'easeOutQuart' }, plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (ctx) { var dv = ctx.label; return ' ' + dv + ': ' + divAgg[dv].orders + ' অর্ডার | ৳' + Number(divAgg[dv].revenue).toLocaleString('en-US'); } }, backgroundColor: 'rgba(6,78,59,.92)', padding: 12, cornerRadius: 10 } } }
+        });
+      } else if (divCanvas) {
+        divCanvas.parentNode.innerHTML = '<div class="text-center text-gray-400 py-10 text-sm"><i class="fas fa-map text-3xl mb-2 block opacity-40"></i>বিভাগভিত্তিক ডেটা এই রেঞ্জে নেই</div>';
+      }
 
       startDashAutoRefresh();
+      var clockEl = document.getElementById('dash-clock');
+      if (clockEl) { try { clockEl.textContent = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Dhaka', hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch (e) {} }
     }).catch(function (e) { if (!silent) apiErr(e); });
+  }
+
+  // Light trend badge for use on gradient (dark) hero cards
+  function trendBadgeLight(change) {
+    var up = change >= 0;
+    return '<span class="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full ' + (up ? 'bg-white/20 text-white' : 'bg-black/20 text-red-100') + '"><i class="fas fa-arrow-' + (up ? 'up' : 'down') + '"></i>' + Math.abs(change) + '%</span>';
   }
 
   function orderTable(orders) {

@@ -19,10 +19,13 @@ ads.get('/', async (c) => {
   if (q.date_to) { conditions.push('spend_date <= ?'); params.push(q.date_to) }
   const rows = await c.env.DB.prepare(`SELECT * FROM ad_spends WHERE ${conditions.join(' AND ')} ORDER BY spend_date DESC, id DESC LIMIT 200`).bind(...params).all()
 
-  // CPO per campaign: total spend / attributed orders
+  // CPO per campaign: total spend / attributed orders + USD spend, delivered revenue, ROAS
   const cpo = await c.env.DB.prepare(`
     SELECT a.campaign_id, a.campaign_name, SUM(a.amount_bdt) as total_spend_bdt,
-      (SELECT COUNT(*) FROM orders o WHERE o.campaign_id = a.campaign_id AND o.campaign_id != '' AND o.is_deleted = 0) as attributed_orders
+      SUM(CASE WHEN a.currency = 'USD' THEN a.amount ELSE 0 END) as total_spend_usd,
+      (SELECT COUNT(*) FROM orders o WHERE o.campaign_id = a.campaign_id AND o.campaign_id != '' AND o.is_deleted = 0) as attributed_orders,
+      (SELECT COUNT(*) FROM orders o WHERE o.campaign_id = a.campaign_id AND o.campaign_id != '' AND o.status = 'delivered' AND o.is_deleted = 0) as delivered_orders,
+      (SELECT COALESCE(SUM(o.grand_total), 0) FROM orders o WHERE o.campaign_id = a.campaign_id AND o.campaign_id != '' AND o.status = 'delivered' AND o.is_deleted = 0) as delivered_revenue
     FROM ad_spends a WHERE a.campaign_id != '' GROUP BY a.campaign_id
   `).all()
 
@@ -30,7 +33,9 @@ ads.get('/', async (c) => {
     ad_spends: rows.results || [],
     campaign_cpo: (cpo.results || []).map((x: any) => ({
       ...x,
-      cost_per_order: x.attributed_orders > 0 ? Math.round(x.total_spend_bdt / x.attributed_orders * 100) / 100 : null
+      cost_per_order: x.attributed_orders > 0 ? Math.round(x.total_spend_bdt / x.attributed_orders * 100) / 100 : null,
+      usd_per_order: x.attributed_orders > 0 && x.total_spend_usd > 0 ? Math.round(x.total_spend_usd / x.attributed_orders * 100) / 100 : null,
+      roas: x.total_spend_bdt > 0 ? Math.round(x.delivered_revenue / x.total_spend_bdt * 100) / 100 : null
     }))
   })
 })
@@ -53,7 +58,7 @@ ads.post('/', async (c) => {
 
   // Distribute estimated ad cost to attributed orders of that campaign+date
   if (b.campaign_id && b.distribute_to_orders) {
-    const orders = await db.prepare(`SELECT id FROM orders WHERE campaign_id = ? AND date(created_at) = ? AND is_deleted = 0`).bind(b.campaign_id, b.spend_date).all()
+    const orders = await db.prepare(`SELECT id FROM orders WHERE campaign_id = ? AND date(created_at, '+6 hours') = ? AND is_deleted = 0`).bind(b.campaign_id, b.spend_date).all()
     const n = (orders.results || []).length
     if (n > 0) {
       const perOrder = Math.round(amountBdt / n * 100) / 100
@@ -116,10 +121,21 @@ r.route('/expenses', expenses)
 const analytics = new Hono<Env>()
 analytics.use('*', requireAuth())
 
+// ============ BANGLADESH TIMEZONE (UTC+6) ============
+// CRITICAL FIX: orders.created_at is stored in UTC (SQLite CURRENT_TIMESTAMP).
+// The dashboard previously computed "today" in UTC too, so a BD admin opening
+// the panel between 12:00 AM and 6:00 AM BD time saw ALL ZEROS (BD-today hadn't
+// started in UTC yet), and evening orders leaked into the wrong day. All date
+// math now runs in Asia/Dhaka (+6h) and every SQL comparison converts
+// created_at with the '+6 hours' modifier to match.
+const BD_OFFSET_MS = 6 * 3600 * 1000
+function bdDateStr(daysAgo = 0): string {
+  return new Date(Date.now() + BD_OFFSET_MS - daysAgo * 86400000).toISOString().slice(0, 10)
+}
 function dateRange(q: Record<string, string>): { from: string; to: string } {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = bdDateStr(0)
   const preset = q.range || 'today'
-  const d = (n: number) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10)
+  const d = (n: number) => bdDateStr(n)
   switch (preset) {
     case 'today': return { from: today, to: today }
     case 'yesterday': return { from: d(1), to: d(1) }
@@ -127,15 +143,18 @@ function dateRange(q: Record<string, string>): { from: string; to: string } {
     case 'last30': return { from: d(29), to: today }
     case 'this_month': return { from: today.slice(0, 8) + '01', to: today }
     case 'last_month': {
-      const now = new Date()
-      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-      const last = new Date(now.getFullYear(), now.getMonth(), 0)
+      const bdNow = new Date(Date.now() + BD_OFFSET_MS)
+      const y = bdNow.getUTCFullYear(), m = bdNow.getUTCMonth()
+      const first = new Date(Date.UTC(y, m - 1, 1))
+      const last = new Date(Date.UTC(y, m, 0))
       return { from: first.toISOString().slice(0, 10), to: last.toISOString().slice(0, 10) }
     }
     case 'custom': return { from: q.date_from || today, to: q.date_to || today }
     default: return { from: today, to: today }
   }
 }
+// SQL fragment: created_at (UTC) -> BD-local calendar date
+const BD_DATE = "date(created_at, '+6 hours')"
 
 analytics.get('/summary', async (c) => {
   const db = c.env.DB
@@ -155,7 +174,7 @@ analytics.get('/summary', async (c) => {
         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
         SUM(CASE WHEN status = 'returned' THEN 1 ELSE 0 END) as returned,
         SUM(CASE WHEN status IN ('new','pending','manual_review') THEN 1 ELSE 0 END) as pending
-      FROM orders WHERE date(created_at) BETWEEN ? AND ? AND is_deleted = 0
+      FROM orders WHERE ${BD_DATE} BETWEEN ? AND ? AND is_deleted = 0
     `).bind(from, to).first<any>(),
     db.prepare(`SELECT COALESCE(SUM(amount_bdt), 0) as total, COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount ELSE 0 END), 0) as usd FROM ad_spends WHERE spend_date BETWEEN ? AND ?`).bind(from, to).first<any>(),
     db.prepare(`SELECT COALESCE(SUM(amount_bdt), 0) as total FROM expenses WHERE expense_date BETWEEN ? AND ?`).bind(from, to).first<any>(),
@@ -228,28 +247,30 @@ analytics.get('/dashboard', async (c) => {
         SUM(CASE WHEN event_name='InitiateCheckout' THEN 1 ELSE 0 END) as checkout,
         SUM(CASE WHEN event_name='Lead' THEN 1 ELSE 0 END) as lead,
         SUM(CASE WHEN event_name='Purchase' THEN 1 ELSE 0 END) as purchase
-      FROM tracking_events WHERE date(created_at) BETWEEN ? AND ?
+      FROM tracking_events WHERE date(created_at, '+6 hours') BETWEEN ? AND ?
     `).bind(from, to).first<any>(),
-    // Hourly orders+revenue (last 24h) for the live pulse chart
+    // Hourly orders+revenue (last 24h) for the live pulse chart — hours shown in BD time
     db.prepare(`
-      SELECT strftime('%H:00', created_at) as hour, COUNT(*) as orders,
+      SELECT strftime('%H:00', created_at, '+6 hours') as hour, COUNT(*) as orders,
         COALESCE(SUM(grand_total),0) as value
       FROM orders WHERE created_at >= datetime('now','-24 hours') AND is_deleted=0
       GROUP BY hour ORDER BY hour
     `).all(),
-    // Top districts by orders in range
+    // ALL districts by orders in range (geo intelligence panel builds
+    // division rollup + top-district ranking from this single list)
     db.prepare(`
       SELECT COALESCE(NULLIF(district,''),'অজানা') as district, COUNT(*) as orders,
-        COALESCE(SUM(CASE WHEN status='delivered' THEN grand_total ELSE 0 END),0) as revenue
-      FROM orders WHERE date(created_at) BETWEEN ? AND ? AND is_deleted=0
-      GROUP BY district ORDER BY orders DESC LIMIT 8
+        COALESCE(SUM(CASE WHEN status='delivered' THEN grand_total ELSE 0 END),0) as revenue,
+        COALESCE(SUM(grand_total),0) as order_value
+      FROM orders WHERE ${BD_DATE} BETWEEN ? AND ? AND is_deleted=0
+      GROUP BY district ORDER BY orders DESC LIMIT 64
     `).bind(from, to).all(),
     // Top products by units in range
     db.prepare(`
       SELECT oi.product_name, SUM(oi.quantity) as units, COUNT(DISTINCT o.id) as orders,
         COALESCE(SUM(oi.total_price),0) as value
       FROM order_items oi JOIN orders o ON o.id=oi.order_id
-      WHERE date(o.created_at) BETWEEN ? AND ? AND o.is_deleted=0
+      WHERE date(o.created_at, '+6 hours') BETWEEN ? AND ? AND o.is_deleted=0
       GROUP BY oi.product_name ORDER BY units DESC LIMIT 5
     `).bind(from, to).all(),
     // Low stock alerts
@@ -261,19 +282,19 @@ analytics.get('/dashboard', async (c) => {
     // Risk mix in range
     db.prepare(`
       SELECT risk_level, COUNT(*) as cnt FROM orders
-      WHERE date(created_at) BETWEEN ? AND ? AND is_deleted=0 GROUP BY risk_level
+      WHERE ${BD_DATE} BETWEEN ? AND ? AND is_deleted=0 GROUP BY risk_level
     `).bind(from, to).all(),
     // Incomplete order recovery stats in range
     db.prepare(`
       SELECT COUNT(*) as total,
         SUM(CASE WHEN status='converted' THEN 1 ELSE 0 END) as converted,
         SUM(CASE WHEN status='incomplete' THEN 1 ELSE 0 END) as open
-      FROM incomplete_orders WHERE date(created_at) BETWEEN ? AND ?
+      FROM incomplete_orders WHERE ${BD_DATE} BETWEEN ? AND ?
     `).bind(from, to).first<any>(),
     // Customer stats: new vs repeat customers in range
     db.prepare(`
       SELECT
-        (SELECT COUNT(*) FROM customers WHERE date(created_at) BETWEEN ? AND ?) as new_customers,
+        (SELECT COUNT(*) FROM customers WHERE date(created_at, '+6 hours') BETWEEN ? AND ?) as new_customers,
         (SELECT COUNT(*) FROM customers WHERE total_orders > 1) as repeat_customers,
         (SELECT COUNT(*) FROM customers) as total_customers,
         (SELECT COUNT(*) FROM customers WHERE list_status='blacklist') as blacklisted
@@ -344,11 +365,11 @@ analytics.get('/charts', async (c) => {
   const { from, to } = dateRange(c.req.query())
   const [daily, adDaily] = await Promise.all([
     db.prepare(`
-      SELECT date(created_at) as day, COUNT(*) as orders,
+      SELECT ${BD_DATE} as day, COUNT(*) as orders,
         COALESCE(SUM(CASE WHEN status = 'delivered' THEN grand_total ELSE 0 END), 0) as revenue,
         COALESCE(SUM(CASE WHEN status = 'delivered' THEN net_profit ELSE 0 END), 0) as profit
-      FROM orders WHERE date(created_at) BETWEEN ? AND ? AND is_deleted = 0
-      GROUP BY date(created_at) ORDER BY day
+      FROM orders WHERE ${BD_DATE} BETWEEN ? AND ? AND is_deleted = 0
+      GROUP BY ${BD_DATE} ORDER BY day
     `).bind(from, to).all(),
     db.prepare(`SELECT spend_date as day, COALESCE(SUM(amount_bdt), 0) as spend FROM ad_spends WHERE spend_date BETWEEN ? AND ? GROUP BY spend_date ORDER BY day`).bind(from, to).all()
   ])
@@ -367,7 +388,7 @@ analytics.get('/products', async (c) => {
       COALESCE(SUM(CASE WHEN o.status = 'delivered' THEN oi.unit_cost * oi.quantity ELSE 0 END), 0) as product_cost,
       COALESCE(SUM(CASE WHEN o.status = 'delivered' THEN o.net_profit ELSE 0 END), 0) as net_profit
     FROM order_items oi JOIN orders o ON o.id = oi.order_id
-    WHERE date(o.created_at) BETWEEN ? AND ? AND o.is_deleted = 0
+    WHERE date(o.created_at, '+6 hours') BETWEEN ? AND ? AND o.is_deleted = 0
     GROUP BY oi.product_id ORDER BY revenue DESC
   `).bind(from, to).all()
   return c.json({
@@ -410,17 +431,17 @@ analytics.get('/marketing', async (c) => {
     db.prepare(`
       SELECT COALESCE(NULLIF(utm_source, ''), 'direct') as source, COUNT(*) as orders,
         COALESCE(SUM(CASE WHEN status = 'delivered' THEN grand_total ELSE 0 END), 0) as revenue
-      FROM orders WHERE date(created_at) BETWEEN ? AND ? AND is_deleted = 0 GROUP BY source ORDER BY orders DESC
+      FROM orders WHERE ${BD_DATE} BETWEEN ? AND ? AND is_deleted = 0 GROUP BY source ORDER BY orders DESC
     `).bind(from, to).all(),
     db.prepare(`
       SELECT COALESCE(NULLIF(utm_campaign, ''), '(none)') as campaign, campaign_id, COUNT(*) as orders,
         COALESCE(SUM(CASE WHEN status = 'delivered' THEN grand_total ELSE 0 END), 0) as revenue,
         COALESCE(SUM(ad_cost), 0) as ad_cost
-      FROM orders WHERE date(created_at) BETWEEN ? AND ? AND is_deleted = 0 GROUP BY campaign, campaign_id ORDER BY orders DESC
+      FROM orders WHERE ${BD_DATE} BETWEEN ? AND ? AND is_deleted = 0 GROUP BY campaign, campaign_id ORDER BY orders DESC
     `).bind(from, to).all()
   ])
   const events = await db.prepare(`
-    SELECT event_name, COUNT(*) as cnt FROM tracking_events WHERE date(created_at) BETWEEN ? AND ? GROUP BY event_name
+    SELECT event_name, COUNT(*) as cnt FROM tracking_events WHERE date(created_at, '+6 hours') BETWEEN ? AND ? GROUP BY event_name
   `).bind(from, to).all()
   return c.json({ sources: sources.results || [], campaigns: campaigns.results || [], events: events.results || [] })
 })
