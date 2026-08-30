@@ -7,12 +7,20 @@
 
 ## URLs
 - **Production (Live)**: https://naturalcarebangladesh.shop (কাস্টম ডোমেইন) / https://natural-care-bd.pages.dev
-- **Sandbox (Dev)**: https://3000-iggv5euxmgv8cza8fep2q-dfc00ec5.sandbox.novita.ai
+- **Sandbox (Dev)**: https://3000-iuwkt82gn1267zz4zum3h-de59bda9.sandbox.novita.ai
 - **GitHub**: https://github.com/arjumankhan566-4313/Natural-Care-BD
 - **Landing Page**: `/`
 - **Order Tracking**: `/track-order`
 - **Admin Panel**: `/admin` — লগইন: `arjumankhan566@gmail.com` (পাসওয়ার্ড admin panel মালিকের কাছে)
-- **Deployment**: ✅ Cloudflare Pages (project: `natural-care-bd`, D1: `natural-care-bd-production`) — Last deployed: 2026-08-30 (স্ক্রল-জাম্প/জুম-ইফেক্ট চূড়ান্ত ফিক্স: overflow-anchor:none, touch-action:manipulation, সব entrance transform অপসারণ)
+- **Deployment**: ✅ Cloudflare Pages (project: `natural-care-bd`, D1: `natural-care-bd-production`) — Last deployed: 2026-08-30 (Enterprise Dashboard 2.0)
+
+### Enterprise Dashboard 2.0 + Pixel Accuracy Update (2026-08-30)
+- ✅ **জিরো-ডেটা বাগ ফিক্স (BD টাইমজোন)**: ড্যাশবোর্ডের "আজ" আগে UTC-তে হিসাব হতো — বাংলাদেশ সময় রাত ১২টার পর থেকে ভোর ৬টা পর্যন্ত সব KPI শূন্য দেখাত এবং সন্ধ্যার অর্ডার ভুল দিনে পড়তো। এখন সব analytics query `date(created_at, '+6 hours')` (Asia/Dhaka) ব্যবহার করে।
+- ✅ **এন্টারপ্রাইজ ড্যাশবোর্ড রিডিজাইন**: গ্রাডিয়েন্ট 3D KPI হিরো কার্ড (mouse-tilt প্রতি কার্ডে স্কোপড, শাইন-সুইপ, গ্লো-স্পট), কমান্ড বার (লাইভ BD ঘড়ি + রেঞ্জ + রেট), উন্নত চার্ট (gradient fill, smooth animation, rich tooltip)।
+- ✅ **লোকেশন ইন্টেলিজেন্স**: কোন জেলা থেকে অর্ডার আসছে — টপ ১০ জেলা (শেয়ার % সহ) + ৮ বিভাগের ডোনাট চার্ট + বিভাগভিত্তিক কালার-কোডেড ব্রেকডাউন (৬৪ জেলা পর্যন্ত)।
+- ✅ **হেডার লোগো 3D এনিমেশন**: প্রফেশনাল coin-flip এন্ট্রান্স + স্লো 3D ফ্লোট + breathing গ্লো + periodic শাইন-সুইপ; ব্র্যান্ড নামে gradient shimmer — সব লোগোর নিজস্ব বক্সে স্বয়ানসম্পূর্ণ, পেজ লেআউট/স্ক্রলে কোনো প্রভাব নেই (জুম-বাগ ফেরেনি), `prefers-reduced-motion` সাপোর্টেড।
+- ✅ **Pixel নির্ভুলতা ফিক্স (অ্যাড ক্যাম্পেইন ডেটা)**: (1) InitiateCheckout আগে পেজ লোডেই ফায়ার হতো (ডিফল্ট প্যাকেজ অটো-সিলেক্টে) — এখন শুধু রিয়েল ইন্টারঅ্যাকশনে (প্যাকেজ ক্লিক/ফর্ম ফোকাস) ফায়ার হয় — Facebook-এর অপ্টিমাইজার এখন সঠিক ফানেল ডেটা পায়; (2) Purchase/ViewContent-এ `content_type:'product'` + `contents[]` + `num_items` যুক্ত (ক্যাটালগ/ম্যাচ-কোয়ালিটি বুস্ট); (3) Graph API v18→v21 আপডেট; আগের মতই value+currency+event_id dedup সহ প্রতিটা অর্ডারের সঠিক টাকার অ্যামাউন্ট Meta-তে যায়।
+- ✅ **ক্যাম্পেইন ROI টেবিল (কত ডলারে কয়টা অর্ডার)**: মার্কেটিং সেকশনে এখন প্রতি ক্যাম্পেইনে USD খরচ, $/অর্ডার, ডেলিভারড রেভিনিউ ও ROAS (রঙিন ব্যাজ) দেখা যায়।
 
 ### Meta Pixel + CAPI Fix Log (2026-08-29)
 - ✅ **fbc timestamp bug ফিক্স**: `fbc` কুকি/ভ্যালু রিকনস্ট্রাক্ট করার সময় আগে সেকেন্ড ব্যবহার হতো, Meta স্পেক অনুযায়ী মিলিসেকেন্ড লাগে — এখন ঠিক করা হয়েছে (client `landing.js` + server `helpers.ts`)।
