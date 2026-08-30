@@ -272,16 +272,45 @@
     navigate();
   }
 
+  // Premium admin splash: real progress-percentage bar (RAF-driven, eases toward
+  // ~92% while waiting for /api/auth/me, completes to 100% right before the
+  // iris-wipe exit), matching the landing page's enterprise-grade intro.
   var adminSplashStart = Date.now();
-  var MIN_ADMIN_SPLASH_MS = 900;
+  var MIN_ADMIN_SPLASH_MS = 1500;
+  var adminSplashDataReady = false;
+  var adminSplashRAF = null;
+  function tickAdminSplashProgress() {
+    var fill = document.getElementById('admin-splash-bar-fill');
+    var pct = document.getElementById('admin-splash-pct');
+    if (!fill || !pct) return;
+    var elapsed = Date.now() - adminSplashStart;
+    var target = adminSplashDataReady ? 100 : Math.min(92, (elapsed / MIN_ADMIN_SPLASH_MS) * 92);
+    var current = parseFloat(fill.style.width) || 0;
+    var next = current + (target - current) * 0.18;
+    if (adminSplashDataReady && target - next < 0.5) next = 100;
+    fill.style.width = next + '%';
+    pct.textContent = Math.round(next) + '%';
+    if (next < 99.5) {
+      adminSplashRAF = requestAnimationFrame(tickAdminSplashProgress);
+    }
+  }
+  tickAdminSplashProgress();
   function hideAdminSplash() {
+    adminSplashDataReady = true;
     var el = document.getElementById('admin-splash');
     if (!el) return;
     var elapsed = Date.now() - adminSplashStart;
     var wait = Math.max(0, MIN_ADMIN_SPLASH_MS - elapsed);
     setTimeout(function () {
-      el.classList.add('splash-hide');
-      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 550);
+      if (adminSplashRAF) cancelAnimationFrame(adminSplashRAF);
+      var fill = document.getElementById('admin-splash-bar-fill');
+      var pct = document.getElementById('admin-splash-pct');
+      if (fill) fill.style.width = '100%';
+      if (pct) pct.textContent = '100%';
+      setTimeout(function () {
+        el.classList.add('splash-hide');
+        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 750);
+      }, 150);
     }, wait);
   }
 

@@ -842,19 +842,48 @@
     }
   };
 
-  // ============ SPLASH (entry logo/brand-name animation) ============
-  // Keeps the splash visible for a minimum time so the entry animation is always
-  // seen (even on a fast connection), then fades it out once real content is ready.
+  // ============ SPLASH (premium entry animation: aurora bg, 3D logo, name wipe, progress) ============
+  // Keeps the splash visible for a minimum time so the full cinematic sequence is
+  // always seen (even on a fast connection), then fades it out (iris-wipe) once
+  // real content is ready. Progress bar reflects the real page-load state: it eases
+  // up to ~92% while waiting for the API response, then completes to 100% right
+  // before the iris-wipe exit — never a fake "instant 100%".
   var splashStart = Date.now();
-  var MIN_SPLASH_MS = 1100;
+  var MIN_SPLASH_MS = 2200;
+  var splashDataReady = false;
+  var splashProgressRAF = null;
+  function tickSplashProgress() {
+    var fill = document.getElementById('splash-progress-fill');
+    var pct = document.getElementById('splash-progress-pct');
+    if (!fill || !pct) return;
+    var elapsed = Date.now() - splashStart;
+    var target = splashDataReady ? 100 : Math.min(92, (elapsed / MIN_SPLASH_MS) * 92);
+    var current = parseFloat(fill.style.width) || 0;
+    var next = current + (target - current) * 0.18;
+    if (splashDataReady && target - next < 0.5) next = 100;
+    fill.style.width = next + '%';
+    pct.textContent = Math.round(next) + '%';
+    if (next < 99.5) {
+      splashProgressRAF = requestAnimationFrame(tickSplashProgress);
+    }
+  }
+  tickSplashProgress();
   function hideSplash() {
+    splashDataReady = true;
     var el = document.getElementById('site-splash');
     if (!el) return;
     var elapsed = Date.now() - splashStart;
     var wait = Math.max(0, MIN_SPLASH_MS - elapsed);
     setTimeout(function () {
-      el.classList.add('splash-hide');
-      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 600);
+      if (splashProgressRAF) cancelAnimationFrame(splashProgressRAF);
+      var fill = document.getElementById('splash-progress-fill');
+      var pct = document.getElementById('splash-progress-pct');
+      if (fill) fill.style.width = '100%';
+      if (pct) pct.textContent = '100%';
+      setTimeout(function () {
+        el.classList.add('splash-hide');
+        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 800);
+      }, 180);
     }, wait);
   }
 

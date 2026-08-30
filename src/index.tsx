@@ -14,7 +14,7 @@ import adminIncomplete from './routes/admin-incomplete'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Cache-busting version for static JS/CSS — bump on every deploy of frontend assets
-const ASSET_V = '10'
+const ASSET_V = '12'
 
 // CORS for API routes
 app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }))
@@ -123,10 +123,23 @@ window.applySiteFont = function (fam) {
 </head>
 <body class="bg-white text-gray-800">
 <div id="site-splash">
-  <div class="splash-logo-wrap">${s.brand_logo ? `<img src="${esc(s.brand_logo)}" alt="logo">` : `<i class="fas fa-leaf" style="font-size:38px;color:#059669"></i>`}</div>
-  <div class="splash-brand-name">${esc(s.brand_name || 'Nature Care Bangladesh')}</div>
-  <div class="splash-tagline">${esc(s.brand_tagline || 'প্রাকৃতিক যত্নে সুস্থ জীবন')}</div>
-  <div class="splash-bar"><div class="splash-bar-fill"></div></div>
+  <div class="splash-aurora"></div>
+  <div class="splash-grid"></div>
+  <div class="splash-particles"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+  <div class="splash-content">
+    <div class="splash-ring-wrap">
+      <div class="splash-ring splash-ring-1"></div>
+      <div class="splash-ring splash-ring-2"></div>
+      <div class="splash-logo-wrap">${s.brand_logo ? `<img src="${esc(s.brand_logo)}" alt="logo">` : `<i class="fas fa-leaf" style="font-size:34px;color:#059669"></i>`}<div class="splash-shine"></div></div>
+    </div>
+    <div class="splash-brand-mask"><div class="splash-brand-name">${esc(s.brand_name || 'Nature Care Bangladesh')}</div></div>
+    <div class="splash-divider"></div>
+    <div class="splash-tagline">${esc(s.brand_tagline || 'প্রাকৃতিক যত্নে সুস্থ জীবন')}</div>
+    <div class="splash-progress-wrap">
+      <div class="splash-progress-track"><div class="splash-progress-fill" id="splash-progress-fill"></div></div>
+      <div class="splash-progress-pct" id="splash-progress-pct">0%</div>
+    </div>
+  </div>
 </div>
 <div id="app"><div class="min-h-screen flex items-center justify-center"><div class="text-center"><div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div><p class="text-gray-500">লোড হচ্ছে...</p></div></div></div>
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
@@ -185,17 +198,35 @@ table{font-size:0.875rem}
 @keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
 .skeleton{background:linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%);background-size:200% 100%;animation:shimmer 1.5s infinite}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-#admin-splash{position:fixed;inset:0;z-index:99999;background:linear-gradient(135deg,#064e3b,#065f46 55%,#059669);display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity .5s ease,visibility .5s ease}
-#admin-splash.splash-hide{opacity:0;visibility:hidden;pointer-events:none}
-.admin-splash-logo{width:72px;height:72px;border-radius:18px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(0,0,0,.25);animation:adminLogoPop .7s cubic-bezier(.34,1.56,.64,1) both;overflow:hidden}
-.admin-splash-logo img{width:100%;height:100%;object-fit:contain;padding:8px}
-@keyframes adminLogoPop{0%{transform:scale(0) rotate(-20deg);opacity:0}60%{transform:scale(1.12) rotate(4deg);opacity:1}100%{transform:scale(1) rotate(0)}}
-.admin-splash-name{margin-top:18px;color:#fff;font-weight:800;font-size:1.35rem;letter-spacing:.02em;opacity:0;animation:adminNameIn .6s ease .35s both}
-.admin-splash-sub{margin-top:4px;color:#a7f3d0;font-size:.8rem;opacity:0;animation:adminNameIn .6s ease .5s both}
-@keyframes adminNameIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-.admin-splash-bar{margin-top:22px;width:160px;height:3px;border-radius:3px;background:rgba(255,255,255,.25);overflow:hidden}
-.admin-splash-bar-fill{height:100%;width:40%;background:#fff;border-radius:3px;animation:adminBarSlide 1.1s ease-in-out infinite}
-@keyframes adminBarSlide{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+/* ===== ADMIN SPLASH — PREMIUM ENTERPRISE INTRO (matches landing page) ===== */
+#admin-splash{position:fixed;inset:0;z-index:99999;background:#052e22;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
+#admin-splash.splash-hide{animation:adminIrisOut .7s cubic-bezier(.76,0,.24,1) forwards;pointer-events:none}
+@keyframes adminIrisOut{0%{clip-path:circle(140% at 50% 50%)}100%{clip-path:circle(0% at 50% 50%)}}
+.admin-splash-aurora{position:absolute;inset:-20%;z-index:0;background:radial-gradient(circle at 22% 25%,rgba(16,185,129,.55) 0%,transparent 45%),radial-gradient(circle at 80% 22%,rgba(5,150,105,.5) 0%,transparent 50%),radial-gradient(circle at 50% 85%,rgba(4,120,87,.6) 0%,transparent 50%);filter:blur(10px);animation:adminAuroraDrift 8s ease-in-out infinite alternate}
+@keyframes adminAuroraDrift{0%{transform:translate(0,0) scale(1) rotate(0)}50%{transform:translate(-2%,2%) scale(1.1) rotate(6deg)}100%{transform:translate(2%,-2%) scale(1.04) rotate(-5deg)}}
+.admin-splash-grid{position:absolute;inset:0;z-index:1;opacity:.12;background-image:linear-gradient(rgba(255,255,255,.5) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.5) 1px,transparent 1px);background-size:38px 38px;mask-image:radial-gradient(circle at 50% 42%,rgba(0,0,0,1) 0%,transparent 68%)}
+.admin-splash-content{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center}
+.admin-ring-wrap{position:relative;width:100px;height:100px;display:flex;align-items:center;justify-content:center}
+.admin-ring{position:absolute;border-radius:50%;border:1.5px solid rgba(167,243,208,.55);animation:adminRingPulse 2.4s cubic-bezier(.2,.7,.3,1) infinite}
+.admin-ring:nth-child(2){animation-delay:1s}
+@keyframes adminRingPulse{0%{transform:scale(.72);opacity:0}25%{opacity:.8}100%{transform:scale(1.5);opacity:0}}
+.admin-splash-logo{position:relative;width:78px;height:78px;border-radius:22px;background:linear-gradient(155deg,#fff 0%,#f0fdf4 100%);padding:10px;display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.15),0 16px 40px rgba(0,0,0,.35),0 0 26px rgba(16,185,129,.35);animation:adminLogoPop .95s cubic-bezier(.22,1.4,.36,1) both;transform-style:preserve-3d}
+.admin-splash-logo img{width:100%;height:100%;object-fit:contain}
+@keyframes adminLogoPop{0%{transform:scale(.2) rotateY(90deg);opacity:0}55%{transform:scale(1.08) rotateY(-8deg);opacity:1}100%{transform:scale(1) rotateY(0);opacity:1}}
+.admin-shine{position:absolute;top:0;left:-60%;width:45%;height:100%;background:linear-gradient(115deg,transparent 0,rgba(255,255,255,.85) 50%,transparent 100%);transform:skewX(-18deg);animation:adminShineSweep 1.8s ease-in-out .9s 1}
+@keyframes adminShineSweep{0%{left:-60%}35%{left:130%}100%{left:130%}}
+.admin-splash-name-mask{margin-top:22px;overflow:hidden;padding:0 20px;max-width:92vw}
+.admin-splash-name{display:inline-block;color:#fff;font-weight:800;font-size:1.35rem;letter-spacing:.02em;transform:translateY(115%);animation:adminNameWipe .8s cubic-bezier(.16,1,.3,1) .48s forwards;text-shadow:0 2px 16px rgba(0,0,0,.25)}
+@keyframes adminNameWipe{to{transform:translateY(0)}}
+.admin-splash-divider{margin-top:10px;height:2px;width:0;border-radius:2px;background:linear-gradient(90deg,transparent,#6ee7b7,#fff,#6ee7b7,transparent);box-shadow:0 0 8px rgba(110,231,183,.7);animation:adminDividerGrow .6s ease .9s forwards}
+@keyframes adminDividerGrow{to{width:110px}}
+.admin-splash-sub{margin-top:10px;color:#a7f3d0;font-size:.78rem;opacity:0;letter-spacing:.3em;text-transform:uppercase;animation:adminTaglineTrack .85s ease 1s forwards;text-align:center;padding:0 16px}
+@keyframes adminTaglineTrack{0%{opacity:0;letter-spacing:.55em}100%{opacity:1;letter-spacing:.18em}}
+.admin-splash-progress-wrap{margin-top:24px;display:flex;flex-direction:column;align-items:center;gap:7px;opacity:0;animation:adminSubReveal .55s ease 1.15s forwards}
+@keyframes adminSubReveal{to{opacity:1}}
+.admin-splash-bar{width:150px;height:3px;border-radius:3px;background:rgba(255,255,255,.18);overflow:hidden}
+.admin-splash-bar-fill{height:100%;width:0%;border-radius:3px;background:linear-gradient(90deg,#34d399,#a7f3d0);box-shadow:0 0 8px rgba(110,231,183,.8);transition:width .25s ease-out}
+.admin-splash-pct{font-size:.65rem;color:rgba(255,255,255,.65);letter-spacing:.1em;font-weight:600;font-variant-numeric:tabular-nums}
 .admin-view-in{animation:adminViewIn .35s ease both}
 @keyframes adminViewIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .count-up-num{display:inline-block}
@@ -205,10 +236,22 @@ table{font-size:0.875rem}
 </head>
 <body class="bg-gray-100">
 <div id="admin-splash">
-  <div class="admin-splash-logo">${s.brand_logo ? `<img src="${(s.brand_logo || '').replace(/"/g, '&quot;')}" alt="logo">` : `<i class="fas fa-leaf" style="font-size:30px;color:#059669"></i>`}</div>
-  <div class="admin-splash-name">${(s.brand_name || 'Nature Care Bangladesh').replace(/</g, '&lt;')}</div>
-  <div class="admin-splash-sub">অ্যাডমিন প্যানেল লোড হচ্ছে...</div>
-  <div class="admin-splash-bar"><div class="admin-splash-bar-fill"></div></div>
+  <div class="admin-splash-aurora"></div>
+  <div class="admin-splash-grid"></div>
+  <div class="admin-splash-content">
+    <div class="admin-ring-wrap">
+      <div class="admin-ring"></div>
+      <div class="admin-ring"></div>
+      <div class="admin-splash-logo">${s.brand_logo ? `<img src="${(s.brand_logo || '').replace(/"/g, '&quot;')}" alt="logo">` : `<i class="fas fa-leaf" style="font-size:30px;color:#059669"></i>`}<div class="admin-shine"></div></div>
+    </div>
+    <div class="admin-splash-name-mask"><div class="admin-splash-name">${(s.brand_name || 'Nature Care Bangladesh').replace(/</g, '&lt;')}</div></div>
+    <div class="admin-splash-divider"></div>
+    <div class="admin-splash-sub">অ্যাডমিন প্যানেল লোড হচ্ছে</div>
+    <div class="admin-splash-progress-wrap">
+      <div class="admin-splash-bar"><div class="admin-splash-bar-fill" id="admin-splash-bar-fill"></div></div>
+      <div class="admin-splash-pct" id="admin-splash-pct">0%</div>
+    </div>
+  </div>
 </div>
 <div id="admin-app"></div>
 <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
