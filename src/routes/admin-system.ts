@@ -234,13 +234,23 @@ r.get('/export/:type', requireAuth('export'), async (c) => {
     ).all()
     const raw = (res.results || []) as any[]
     rows = raw.map(c => {
-      const parts = String(c.name || '').trim().split(/\s+/)
+      // নাম split — শুধু স্পেস দিয়ে ভাঙলে "MDAbbas", "RakibHossain"-এর মতো একসাথে-লেখা
+      // নামে ln ফাঁকা থেকে যায়। তাই camelCase বাউন্ডারিতেও ভাঙা হচ্ছে:
+      // lowercase→Uppercase (RakibHossain -> Rakib Hossain) এবং
+      // ACRONYM→Capital+lowercase (MDAbbas -> MD Abbas)।
+      let name = String(c.name || '').trim()
+      name = name.replace(/([a-z])([A-Z])/g, '$1 $2')
+      name = name.replace(/([A-Z]{2,})([A-Z][a-z])/g, '$1 $2')
+      const parts = name.trim().split(/\s+/)
       const fn = parts[0] || ''
       const ln = parts.length > 1 ? parts.slice(1).join(' ') : ''
       let p = String(c.phone || '').replace(/[^\d]/g, '')
       if (p.startsWith('0')) p = '880' + p.slice(1)
       else if (!p.startsWith('880')) p = '880' + p
-      return { phone: p, fn, ln, ct: c.district || '', value: c.total_spent || 0 }
+      // ফোন নাম্বারকে টেক্সট ফরম্যাটে রাখার জন্য ="..." র‍্যাপ — Excel/Google Sheets
+      // এতে বড় সংখ্যাকে scientific notation (8.8018E+12)-এ ভাঙবে না, পুরো নাম্বার দেখাবে।
+      const phoneText = `="${p}"`
+      return { phone: phoneText, fn, ln, ct: c.district || '', value: c.total_spent || 0 }
     })
   } else if (type === 'products') {
     const res = await db.prepare('SELECT name, regular_price, sale_price, product_cost, stock, stock_status, is_active FROM products WHERE is_deleted = 0').all()
