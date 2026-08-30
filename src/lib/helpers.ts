@@ -67,6 +67,19 @@ export async function hashMetaFirstName(fullName: string): Promise<string | unde
   return sha256Hex(first.toLowerCase())
 }
 
+// Normalize + hash the LAST name for Meta's `ln` field. Same rules as fn.
+// Meta's Event Match Quality scoring rewards having BOTH fn AND ln present —
+// previously only fn was ever sent, which caps the achievable match score.
+// If the customer only typed a single-word name, there is no last name to
+// send (returns undefined) — this is expected and fine, not an error.
+export async function hashMetaLastName(fullName: string): Promise<string | undefined> {
+  const parts = (fullName || '').trim().split(/\s+/)
+  if (parts.length < 2) return undefined
+  const last = parts[parts.length - 1]
+  if (!last) return undefined
+  return sha256Hex(last.toLowerCase())
+}
+
 // Normalize + hash a BD phone (any input format) for Meta's `ph` field:
 // digits only, WITH country code (880), no leading zero.
 export async function hashMetaPhone(phone: string): Promise<string | undefined> {
@@ -144,6 +157,7 @@ export async function forwardToCapi(
     fbc?: string
     customerName?: string
     customerPhone?: string
+    externalId?: string
     customData?: Record<string, any>
   }
 ): Promise<void> {
@@ -170,6 +184,16 @@ export async function forwardToCapi(
     } else if (params.fbclid) {
       userData.fbc = `fb.1.${params.fbclidTs || Date.now()}.${params.fbclid}`
     }
+    // external_id — the landing page's own per-visitor session_id (sessionStorage,
+    // generated once per browser session, sent on EVERY event: PageView, ViewContent,
+    // InitiateCheckout, Lead, Purchase). Per Meta's docs this is a "Hashing recommended"
+    // match key that works even before the customer has typed name/phone, and — crucially —
+    // it is the SAME value across the whole funnel for one visitor. This lets Meta link an
+    // anonymous PageView/InitiateCheckout to the same person's later Purchase, which raises
+    // Event Match Quality for the EARLY, high-volume events (PageView/ViewContent/
+    // InitiateCheckout) that otherwise carry only IP + user-agent — exactly the gap that was
+    // showing as "শুধু fn/ln আর IP আসছে, ph আসছে না" for those events in Events Manager.
+    if (params.externalId) userData.external_id = await sha256Hex(params.externalId)
     // Advanced Matching (ph/fn) — required by Meta ads booster for higher match quality.
     // Both fields must be SHA-256 hashed per Meta CAPI spec (unlike the browser Pixel,
     // which auto-hashes plain text passed to fbq('init', ..., {ph, fn})).
@@ -182,6 +206,10 @@ export async function forwardToCapi(
       if (params.customerName) {
         const hashedFn = await hashMetaFirstName(params.customerName)
         if (hashedFn) userData.fn = hashedFn
+        // ln (last name) — previously never sent. Meta's EMQ scoring specifically
+        // checks for fn+ln together; sending fn alone caps the achievable score.
+        const hashedLn = await hashMetaLastName(params.customerName)
+        if (hashedLn) userData.ln = hashedLn
       }
     }
     const payload: any = {

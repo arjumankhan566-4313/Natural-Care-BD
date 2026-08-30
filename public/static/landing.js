@@ -80,7 +80,14 @@
       fbp: getCookie('_fbp'), fbc: getCookie('_fbc'),
       // Optional customer name/phone -> forwarded to Meta CAPI (hashed server-side) for
       // Advanced Matching on non-Purchase events (e.g. Lead) once the customer has typed them.
-      customer_name: (userData && userData.name) || '', customer_phone: (userData && userData.phone) || ''
+      customer_name: (userData && userData.name) || '', customer_phone: (userData && userData.phone) || '',
+      // session_id -> forwarded to Meta as external_id (hashed server-side). Same value for
+      // EVERY event in this visitor's session (PageView through Purchase), so Meta can link an
+      // early, name/phone-less event (PageView/ViewContent/InitiateCheckout) to the SAME person's
+      // later Purchase. This is the fix for events showing only fn/IP with no ph in Events
+      // Manager — those early events genuinely have no phone yet, external_id is the match key
+      // that works before the customer has typed anything.
+      session_id: sessionId || ''
     }).catch(function () {});
     return eid;
   }
