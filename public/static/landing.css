@@ -1,13 +1,15 @@
 /* Nature Care Bangladesh - Landing Page Styles */
 html { scroll-behavior: smooth; }
+/* Prevent horizontal wobble from any transformed element (fixes pinch/zoom-feel on mobile) */
+html, body { overflow-x: hidden; }
 
 .btn-primary {
   background: linear-gradient(135deg, #059669 0%, #047857 100%);
   transition: all .25s ease;
   box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35);
 }
-.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(5, 150, 105, 0.45); }
-.btn-primary:active { transform: translateY(0); }
+.btn-primary:hover { box-shadow: 0 6px 20px rgba(5, 150, 105, 0.45); }
+.btn-primary:active { box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35); }
 
 .pulse-cta { animation: ctaPulse 2s infinite; }
 @keyframes ctaPulse {
@@ -18,8 +20,8 @@ html { scroll-behavior: smooth; }
 .fade-up { opacity: 0; transform: translateY(24px); transition: opacity .6s ease, transform .6s ease; }
 .fade-up.visible { opacity: 1; transform: translateY(0); }
 
-.package-card { transition: all .25s ease; cursor: pointer; }
-.package-card:hover { transform: translateY(-3px); }
+.package-card { transition: border-color .25s ease, background-color .25s ease, box-shadow .25s ease; cursor: pointer; }
+.package-card:hover { box-shadow: 0 6px 18px rgba(5, 150, 105, 0.18); }
 .package-card.selected {
   border-color: #059669 !important;
   background: #ecfdf5;
@@ -258,24 +260,23 @@ img { max-width: 100%; }
    (self-contained perspective() in each transform — works at any
    DOM nesting depth, no ancestor `perspective` property needed)
    ============================================================ */
+/* ZOOM-BUG FIX: header logo + brand name now enter with a simple fade
+   (no rotateY/rotateX/scale/perspective — those read as zooming). */
 .logo-3d-card {
-  display: inline-flex; transform-style: preserve-3d;
-  transition: transform .2s cubic-bezier(.22,1,.36,1);
-  animation: logo3dIn .85s cubic-bezier(.22,1.4,.36,1) both;
-  will-change: transform;
+  display: inline-flex;
+  animation: logo3dIn .6s ease both;
 }
 @keyframes logo3dIn {
-  0%   { opacity: 0; transform: perspective(700px) rotateY(-110deg) scale(.35); }
-  55%  { opacity: 1; }
-  100% { opacity: 1; transform: perspective(700px) rotateY(0deg) scale(1); }
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
 }
 .brand-name-3d-load {
-  display: inline-block; transform-origin: 50% 100%;
-  animation: brandName3dFlip .8s cubic-bezier(.2,.9,.25,1) .15s both;
+  display: inline-block;
+  animation: brandName3dFlip .6s ease .1s both;
 }
 @keyframes brandName3dFlip {
-  0%   { opacity: 0; transform: perspective(500px) rotateX(-85deg) translateY(6px); }
-  100% { opacity: 1; transform: perspective(500px) rotateX(0deg) translateY(0); }
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 
 /* ============================================================
@@ -284,9 +285,9 @@ img { max-width: 100%; }
    plus a shine-sweep loop that works on every device (mobile
    fallback = "advance level" 2D animation as requested).
    ============================================================ */
+/* .btn-tilt kept only as a shadow transition — the JS mouse-tilt was removed (zoom-bug fix) */
 .btn-tilt {
-  transition: transform .18s ease-out, box-shadow .18s ease-out;
-  will-change: transform;
+  transition: box-shadow .18s ease-out;
 }
 .btn-shine-loop { position: relative; }
 .btn-shine-loop::before {
@@ -303,21 +304,22 @@ img { max-width: 100%; }
    `animation` property, so it uses the separate transition-based .btn-pop-in-start/-go
    pair below instead, to avoid two classes fighting over the same `animation` shorthand. */
 .btn-pop-in {
-  animation: btnPopIn .65s cubic-bezier(.34,1.56,.64,1) both;
+  animation: btnPopIn .55s ease both;
 }
+/* ZOOM-BUG FIX: entrance is a plain fade-slide (no scale / rotateX / perspective) */
 @keyframes btnPopIn {
-  0%   { opacity: 0; transform: perspective(700px) scale(.55) rotateX(40deg); }
-  100% { opacity: 1; transform: perspective(700px) scale(1) rotateX(0deg); }
+  0%   { opacity: 0; transform: translateY(14px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 /* Transition-based (non-animation) entrance for buttons that already animate via
    `pulse-cta` — JS toggles .btn-pop-in-go then removes both classes once done, so the
    permanent `.btn-tilt` transition (fast, for hover-tilt) takes over afterwards. */
 .btn-pop-in-start {
-  opacity: 0; transform: perspective(700px) scale(.55) rotateX(40deg);
-  transition: transform .65s cubic-bezier(.34,1.56,.64,1), opacity .5s ease;
+  opacity: 0; transform: translateY(14px);
+  transition: transform .55s ease, opacity .45s ease;
 }
 .btn-pop-in-start.btn-pop-in-go {
-  opacity: 1; transform: perspective(700px) scale(1) rotateX(0deg);
+  opacity: 1; transform: translateY(0);
 }
 
 .phone-ring-icon { display: inline-block; animation: phoneRing 2.6s ease-in-out infinite; transform-origin: 70% 70%; }
@@ -337,23 +339,33 @@ img { max-width: 100%; }
    animated here — opacity of the text is NEVER touched, so text
    never disappears and stays fully readable at all times.
    ============================================================ */
+/* ZOOM-BUG FIX: entrance is now a simple, small fade-slide — NO scale, NO rotateX,
+   NO perspective anywhere. The old scale(.94)+rotateX(8deg) entrance is what made
+   the whole page look like it was "zooming in/out" while scrolling or hovering. */
 .box-pop-in {
   position: relative;
-  transform: perspective(1200px) translateY(38px) scale(.94) rotateX(8deg);
-  transition: transform .65s cubic-bezier(.16,1,.3,1), box-shadow .3s ease, border-color .3s ease, background-color .3s ease;
+  transform: translateY(16px);
+  transition: transform .5s cubic-bezier(.16,1,.3,1), box-shadow .3s ease, border-color .3s ease, background-color .3s ease;
 }
-.box-pop-in.visible { transform: perspective(1200px) translateY(0) scale(1) rotateX(0deg); }
-/* Generic hover lift for content boxes — package-card keeps its own distinct hover
-   (defined below, later in the cascade) so selecting a package still feels different
-   from just hovering a benefit/review/FAQ card. */
+.box-pop-in.visible { transform: translateY(0); }
+/* Hover: shadow-only highlight — zero movement, zero zoom. */
 @media (hover: hover) and (pointer: fine) {
   .box-pop-in:hover {
-    transform: perspective(1200px) translateY(-5px) scale(1.015) rotateX(1.5deg);
-    box-shadow: 0 14px 32px rgba(5,150,105,.18);
+    box-shadow: 0 10px 26px rgba(5,150,105,.14);
   }
-  .package-card.box-pop-in:hover {
-    transform: perspective(1200px) translateY(-3px) scale(1) rotateX(0deg);
-  }
+}
+
+/* ============ MOBILE SCROLL FIX ============
+   On touch devices the 3D perspective entrance transforms (translateY+rotateX while
+   scrolling) broke the browser's scroll anchoring — scrolling down would visibly
+   yank the page back up. On mobile we disable ALL entrance transforms for content
+   boxes: cards simply appear in place (shadow/border transitions kept), so the page
+   scrolls perfectly smoothly. Desktop keeps the full 3D entrance. */
+@media (max-width: 768px), (pointer: coarse) {
+  .box-pop-in { transform: none !important; transition: box-shadow .3s ease, border-color .3s ease, background-color .3s ease; }
+  .box-pop-in.visible { transform: none !important; }
+  .box-pop-in.visible::after { animation: none; }
+  .fade-up { opacity: 1; transform: none; }
 }
 /* One-time subtle sheen across the box surface when it enters view. Uses a NEGATIVE
    z-index so it paints behind the box's text content (layer order: box background <

@@ -199,6 +199,145 @@ analytics.get('/summary', async (c) => {
   })
 })
 
+// ---------- ENTERPRISE DASHBOARD (real-time) ----------
+// One endpoint returning everything the enterprise dashboard needs in a single
+// round-trip: live activity, conversion funnel, hourly series, top districts,
+// top products, low-stock alerts, courier snapshot, risk mix, recent events.
+analytics.get('/dashboard', async (c) => {
+  const db = c.env.DB
+  const { from, to } = dateRange(c.req.query())
+
+  const [
+    liveStats, funnel, hourly, topDistricts, topProducts,
+    lowStock, riskMix, incompleteStats, customerStats, weekCompare
+  ] = await Promise.all([
+    // Live activity: last 30/60 min visitors + today's key numbers
+    db.prepare(`
+      SELECT
+        (SELECT COUNT(DISTINCT ip_address) FROM tracking_events WHERE created_at >= datetime('now','-30 minutes')) as visitors_30m,
+        (SELECT COUNT(*) FROM tracking_events WHERE event_name='PageView' AND created_at >= datetime('now','-60 minutes')) as pageviews_1h,
+        (SELECT COUNT(*) FROM orders WHERE created_at >= datetime('now','-60 minutes') AND is_deleted=0) as orders_1h,
+        (SELECT COUNT(*) FROM orders WHERE created_at >= datetime('now','-24 hours') AND is_deleted=0) as orders_24h,
+        (SELECT COUNT(*) FROM incomplete_orders WHERE status='incomplete' AND updated_at >= datetime('now','-24 hours')) as incomplete_24h
+    `).first<any>(),
+    // Conversion funnel for selected range
+    db.prepare(`
+      SELECT
+        SUM(CASE WHEN event_name='PageView' THEN 1 ELSE 0 END) as pageview,
+        SUM(CASE WHEN event_name='ViewContent' THEN 1 ELSE 0 END) as viewcontent,
+        SUM(CASE WHEN event_name='InitiateCheckout' THEN 1 ELSE 0 END) as checkout,
+        SUM(CASE WHEN event_name='Lead' THEN 1 ELSE 0 END) as lead,
+        SUM(CASE WHEN event_name='Purchase' THEN 1 ELSE 0 END) as purchase
+      FROM tracking_events WHERE date(created_at) BETWEEN ? AND ?
+    `).bind(from, to).first<any>(),
+    // Hourly orders+revenue (last 24h) for the live pulse chart
+    db.prepare(`
+      SELECT strftime('%H:00', created_at) as hour, COUNT(*) as orders,
+        COALESCE(SUM(grand_total),0) as value
+      FROM orders WHERE created_at >= datetime('now','-24 hours') AND is_deleted=0
+      GROUP BY hour ORDER BY hour
+    `).all(),
+    // Top districts by orders in range
+    db.prepare(`
+      SELECT COALESCE(NULLIF(district,''),'অজানা') as district, COUNT(*) as orders,
+        COALESCE(SUM(CASE WHEN status='delivered' THEN grand_total ELSE 0 END),0) as revenue
+      FROM orders WHERE date(created_at) BETWEEN ? AND ? AND is_deleted=0
+      GROUP BY district ORDER BY orders DESC LIMIT 8
+    `).bind(from, to).all(),
+    // Top products by units in range
+    db.prepare(`
+      SELECT oi.product_name, SUM(oi.quantity) as units, COUNT(DISTINCT o.id) as orders,
+        COALESCE(SUM(oi.total_price),0) as value
+      FROM order_items oi JOIN orders o ON o.id=oi.order_id
+      WHERE date(o.created_at) BETWEEN ? AND ? AND o.is_deleted=0
+      GROUP BY oi.product_name ORDER BY units DESC LIMIT 5
+    `).bind(from, to).all(),
+    // Low stock alerts
+    db.prepare(`
+      SELECT id, name, stock, low_stock_threshold, stock_status FROM products
+      WHERE is_deleted=0 AND is_active=1 AND (stock <= low_stock_threshold OR stock_status != 'in_stock')
+      ORDER BY stock ASC LIMIT 6
+    `).all(),
+    // Risk mix in range
+    db.prepare(`
+      SELECT risk_level, COUNT(*) as cnt FROM orders
+      WHERE date(created_at) BETWEEN ? AND ? AND is_deleted=0 GROUP BY risk_level
+    `).bind(from, to).all(),
+    // Incomplete order recovery stats in range
+    db.prepare(`
+      SELECT COUNT(*) as total,
+        SUM(CASE WHEN status='converted' THEN 1 ELSE 0 END) as converted,
+        SUM(CASE WHEN status='incomplete' THEN 1 ELSE 0 END) as open
+      FROM incomplete_orders WHERE date(created_at) BETWEEN ? AND ?
+    `).bind(from, to).first<any>(),
+    // Customer stats: new vs repeat customers in range
+    db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM customers WHERE date(created_at) BETWEEN ? AND ?) as new_customers,
+        (SELECT COUNT(*) FROM customers WHERE total_orders > 1) as repeat_customers,
+        (SELECT COUNT(*) FROM customers) as total_customers,
+        (SELECT COUNT(*) FROM customers WHERE list_status='blacklist') as blacklisted
+    `).bind(from, to).first<any>(),
+    // This week vs last week comparison (orders + delivered revenue)
+    db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM orders WHERE created_at >= datetime('now','-7 days') AND is_deleted=0) as orders_this,
+        (SELECT COUNT(*) FROM orders WHERE created_at >= datetime('now','-14 days') AND created_at < datetime('now','-7 days') AND is_deleted=0) as orders_prev,
+        (SELECT COALESCE(SUM(grand_total),0) FROM orders WHERE status='delivered' AND created_at >= datetime('now','-7 days') AND is_deleted=0) as rev_this,
+        (SELECT COALESCE(SUM(grand_total),0) FROM orders WHERE status='delivered' AND created_at >= datetime('now','-14 days') AND created_at < datetime('now','-7 days') AND is_deleted=0) as rev_prev
+    `).first<any>()
+  ])
+
+  const pct = (cur: number, prev: number) => prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : (cur > 0 ? 100 : 0)
+  const risk: Record<string, number> = { low: 0, medium: 0, high: 0 }
+  for (const r2 of (riskMix.results || []) as any[]) risk[r2.risk_level || 'low'] = r2.cnt
+
+  return c.json({
+    range: { from, to },
+    live: {
+      visitors_30m: liveStats?.visitors_30m || 0,
+      pageviews_1h: liveStats?.pageviews_1h || 0,
+      orders_1h: liveStats?.orders_1h || 0,
+      orders_24h: liveStats?.orders_24h || 0,
+      incomplete_24h: liveStats?.incomplete_24h || 0
+    },
+    funnel: {
+      pageview: funnel?.pageview || 0,
+      viewcontent: funnel?.viewcontent || 0,
+      checkout: funnel?.checkout || 0,
+      lead: funnel?.lead || 0,
+      purchase: funnel?.purchase || 0,
+      conversion_rate: (funnel?.pageview || 0) > 0 ? Math.round(((funnel?.purchase || 0) / funnel.pageview) * 1000) / 10 : 0
+    },
+    hourly: hourly.results || [],
+    top_districts: topDistricts.results || [],
+    top_products: topProducts.results || [],
+    low_stock: lowStock.results || [],
+    risk_mix: risk,
+    incomplete: {
+      total: incompleteStats?.total || 0,
+      converted: incompleteStats?.converted || 0,
+      open: incompleteStats?.open || 0,
+      recovery_rate: (incompleteStats?.total || 0) > 0 ? Math.round(((incompleteStats?.converted || 0) / incompleteStats.total) * 1000) / 10 : 0
+    },
+    customers: {
+      new_in_range: customerStats?.new_customers || 0,
+      repeat: customerStats?.repeat_customers || 0,
+      total: customerStats?.total_customers || 0,
+      blacklisted: customerStats?.blacklisted || 0
+    },
+    week_compare: {
+      orders_this: weekCompare?.orders_this || 0,
+      orders_prev: weekCompare?.orders_prev || 0,
+      orders_change: pct(weekCompare?.orders_this || 0, weekCompare?.orders_prev || 0),
+      revenue_this: weekCompare?.rev_this || 0,
+      revenue_prev: weekCompare?.rev_prev || 0,
+      revenue_change: pct(weekCompare?.rev_this || 0, weekCompare?.rev_prev || 0)
+    },
+    server_time: new Date().toISOString()
+  })
+})
+
 // Chart data: daily series
 analytics.get('/charts', async (c) => {
   const db = c.env.DB

@@ -635,43 +635,12 @@
     document.querySelectorAll('.box-pop-in').forEach(function (el) { io.observe(el); });
   }
 
-  // ============ ADVANCED 3D — LOGO / BRAND-NAME hover-tilt + BUTTON mouse-tilt ============
-  // Desktop-only (hover:hover + pointer:fine, checked via matchMedia) so touch devices
-  // never get a stuck tilt transform. Mobile still gets the CSS entrance/shine/ring
-  // animations above — those work on every device.
+  // ============ BUTTON ENTRANCE (zoom-bug fix) ============
+  // The mousemove-driven 3D tilt (rotateX/rotateY/perspective on the header logo and
+  // order/call buttons) has been REMOVED entirely — it created a "zoom in / zoom out"
+  // effect whenever the mouse moved over the page. Buttons keep their shine-sweep,
+  // pulse and pop-in entrance animations, which don't move the layout.
   function initAdvanced3D() {
-    var canTilt = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-
-    // Header logo + brand block: subtle 3D tilt following the cursor
-    var brandBlock = document.getElementById('brand-3d-block');
-    var logoCard = document.getElementById('header-logo-3d');
-    if (canTilt && brandBlock && logoCard) {
-      brandBlock.addEventListener('mousemove', function (e) {
-        var r = brandBlock.getBoundingClientRect();
-        var px = (e.clientX - r.left) / r.width - 0.5;
-        var py = (e.clientY - r.top) / r.height - 0.5;
-        logoCard.style.transform = 'perspective(500px) rotateY(' + (px * 22) + 'deg) rotateX(' + (py * -22) + 'deg) scale(1.08)';
-      });
-      brandBlock.addEventListener('mouseleave', function () {
-        logoCard.style.transform = 'perspective(500px) rotateY(0deg) rotateX(0deg) scale(1)';
-      });
-    }
-
-    // Order / call buttons: perspective tilt that follows the cursor position on the button
-    if (canTilt) {
-      document.querySelectorAll('[data-tilt="1"]').forEach(function (btn) {
-        btn.addEventListener('mousemove', function (e) {
-          var r = btn.getBoundingClientRect();
-          var px = (e.clientX - r.left) / r.width - 0.5;
-          var py = (e.clientY - r.top) / r.height - 0.5;
-          btn.style.transform = 'perspective(600px) rotateX(' + (py * -10) + 'deg) rotateY(' + (px * 10) + 'deg) translateY(-2px) scale(1.02)';
-        });
-        btn.addEventListener('mouseleave', function () {
-          btn.style.transform = '';
-        });
-      });
-    }
-
     // One-shot pop-in for buttons using the transition-based start/go pair
     // (kept separate from `animation`-driven elements like .pulse-cta so the two
     // never fight over the same CSS `animation` shorthand property).

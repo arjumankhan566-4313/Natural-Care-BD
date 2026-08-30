@@ -32,23 +32,102 @@
       opts.map(function (o) { return '<option value="' + o[0] + '" ' + (current === o[0] ? 'selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>';
   }
 
-  // ============ DASHBOARD ============
+  // ============ ENTERPRISE DASHBOARD (real-time) ============
   var dashRange = 'today';
-  function viewDashboard() {
-    destroyCharts();
+  var dashTimer = null;       // auto-refresh timer (real-time)
+  var DASH_REFRESH_MS = 30000;
+
+  function stopDashAutoRefresh() { if (dashTimer) { clearInterval(dashTimer); dashTimer = null; } }
+  function startDashAutoRefresh() {
+    stopDashAutoRefresh();
+    dashTimer = setInterval(function () {
+      // Only refresh while the dashboard is actually visible
+      if (S.route !== 'dashboard' || document.hidden) return;
+      viewDashboard(true); // silent refresh
+    }, DASH_REFRESH_MS);
+  }
+
+  function trendBadge(change) {
+    var up = change >= 0;
+    return '<span class="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ' + (up ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600') + '">' +
+      '<i class="fas fa-arrow-' + (up ? 'up' : 'down') + '"></i>' + Math.abs(change) + '%</span>';
+  }
+
+  function funnelBar(label, val, maxVal, color) {
+    var w = maxVal > 0 ? Math.max(2, Math.round((val / maxVal) * 100)) : 2;
+    return '<div class="mb-2.5"><div class="flex justify-between text-xs mb-1"><span class="font-semibold text-gray-600">' + label + '</span><span class="font-bold text-gray-900">' + Number(val).toLocaleString('en-US') + '</span></div>' +
+      '<div class="h-2.5 bg-gray-100 rounded-full overflow-hidden"><div class="h-full rounded-full transition-all duration-700" style="width:' + w + '%;background:' + color + '"></div></div></div>';
+  }
+
+  function viewDashboard(silent) {
+    if (!silent) destroyCharts();
     Promise.all([
       axios.get('/api/admin/analytics/summary?range=' + dashRange),
       axios.get('/api/admin/analytics/charts?range=' + (dashRange === 'today' || dashRange === 'yesterday' ? 'last7' : dashRange)),
-      axios.get('/api/admin/orders?limit=8')
+      axios.get('/api/admin/orders?limit=8'),
+      axios.get('/api/admin/analytics/dashboard?range=' + dashRange)
     ]).then(function (rs) {
-      var d = rs[0].data, ch = rs[1].data, ords = rs[2].data.orders;
-      var sc = d.status_counts || {};
+      if (S.route !== 'dashboard') return; // user navigated away mid-request
+      destroyCharts();
+      var d = rs[0].data, ch = rs[1].data, ords = rs[2].data.orders, ent = rs[3].data;
+      var live = ent.live, fn = ent.funnel, wc = ent.week_compare;
       cardIdx = 0;
+
+      var lowStockHtml = (ent.low_stock || []).length
+        ? ent.low_stock.map(function (p) {
+            return '<div class="flex items-center justify-between py-2 border-b border-gray-50 text-sm">' +
+              '<div class="min-w-0"><div class="font-semibold truncate">' + esc(p.name) + '</div><div class="text-[11px] text-gray-400">থ্রেশহোল্ড: ' + p.low_stock_threshold + '</div></div>' +
+              '<span class="px-2 py-1 rounded-lg text-xs font-bold ' + (p.stock <= 0 ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700') + '">' + p.stock + ' পিস</span></div>';
+          }).join('')
+        : '<div class="text-center text-gray-400 py-6 text-sm"><i class="fas fa-circle-check text-emerald-400 mr-1"></i>সব প্রোডাক্টের স্টক ঠিক আছে</div>';
+
+      var topProdHtml = (ent.top_products || []).length
+        ? ent.top_products.map(function (p, i) {
+            return '<div class="flex items-center gap-3 py-2 border-b border-gray-50 text-sm">' +
+              '<span class="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-bold flex items-center justify-center shrink-0">' + (i + 1) + '</span>' +
+              '<div class="flex-1 min-w-0"><div class="font-semibold truncate">' + esc(p.product_name) + '</div><div class="text-[11px] text-gray-400">' + p.orders + ' অর্ডার</div></div>' +
+              '<div class="text-right shrink-0"><div class="font-bold">' + p.units + ' পিস</div><div class="text-[11px] text-gray-400">' + money(p.value) + '</div></div></div>';
+          }).join('')
+        : '<div class="text-center text-gray-400 py-6 text-sm">এই রেঞ্জে কোনো বিক্রি নেই</div>';
+
+      var distMax = Math.max.apply(null, (ent.top_districts || []).map(function (x) { return x.orders; }).concat([1]));
+      var distHtml = (ent.top_districts || []).length
+        ? ent.top_districts.map(function (x) {
+            var w = Math.max(4, Math.round((x.orders / distMax) * 100));
+            return '<div class="mb-2"><div class="flex justify-between text-xs mb-0.5"><span class="font-semibold text-gray-600">' + esc(x.district) + '</span><span class="text-gray-500">' + x.orders + ' অর্ডার | ' + money(x.revenue) + '</span></div>' +
+              '<div class="h-2 bg-gray-100 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-emerald-500 to-emerald-300 rounded-full" style="width:' + w + '%"></div></div></div>';
+          }).join('')
+        : '<div class="text-center text-gray-400 py-6 text-sm">ডেটা নেই</div>';
+
       setContent(
-        '<div class="flex items-center justify-between mb-5 flex-wrap gap-3">' +
-          '<div><div class="text-sm text-gray-500">' + d.range.from + (d.range.from !== d.range.to ? ' → ' + d.range.to : '') + ' | $1 = ৳' + d.usd_rate + '</div></div>' +
-          rangeSelector(dashRange, 'AV.dashRange(this.value)') +
+        // ===== TOP BAR: range + live indicator =====
+        '<div class="flex items-center justify-between mb-4 flex-wrap gap-3">' +
+          '<div class="flex items-center gap-3 flex-wrap">' +
+            '<span class="inline-flex items-center gap-2 bg-white shadow-sm rounded-full px-3.5 py-1.5 text-xs font-bold text-gray-700"><span class="relative flex h-2.5 w-2.5"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span>লাইভ — প্রতি ৩০ সেকেন্ডে অটো আপডেট</span>' +
+            '<span class="text-xs text-gray-500">' + d.range.from + (d.range.from !== d.range.to ? ' → ' + d.range.to : '') + ' | $1 = ৳' + d.usd_rate + '</span>' +
+          '</div>' +
+          '<div class="flex items-center gap-2">' +
+            '<button onclick="AV.dashRefresh()" class="bg-white shadow-sm rounded-lg px-3 py-2 text-sm text-gray-600 hover:text-emerald-600" title="এখনই রিফ্রেশ"><i class="fas fa-rotate"></i></button>' +
+            rangeSelector(dashRange, 'AV.dashRange(this.value)') +
+          '</div>' +
         '</div>' +
+
+        // ===== LIVE ACTIVITY STRIP =====
+        '<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">' +
+          '<div class="bg-gradient-to-br from-emerald-600 to-emerald-800 text-white rounded-2xl p-4 kpi-card-in"><div class="text-[11px] opacity-80 mb-1"><i class="fas fa-eye mr-1"></i>লাইভ ভিজিটর (৩০ মি.)</div><div class="text-2xl font-bold"><span class="count-up-num" data-target="' + live.visitors_30m + '">0</span></div></div>' +
+          '<div class="bg-white rounded-2xl p-4 shadow-sm kpi-card-in" style="animation-delay:.05s"><div class="text-[11px] text-gray-500 mb-1"><i class="fas fa-file mr-1 text-blue-500"></i>পেজভিউ (১ ঘণ্টা)</div><div class="text-2xl font-bold text-gray-900"><span class="count-up-num" data-target="' + live.pageviews_1h + '">0</span></div></div>' +
+          '<div class="bg-white rounded-2xl p-4 shadow-sm kpi-card-in" style="animation-delay:.1s"><div class="text-[11px] text-gray-500 mb-1"><i class="fas fa-bolt mr-1 text-amber-500"></i>অর্ডার (১ ঘণ্টা)</div><div class="text-2xl font-bold text-gray-900"><span class="count-up-num" data-target="' + live.orders_1h + '">0</span></div></div>' +
+          '<div class="bg-white rounded-2xl p-4 shadow-sm kpi-card-in" style="animation-delay:.15s"><div class="text-[11px] text-gray-500 mb-1"><i class="fas fa-cart-shopping mr-1 text-emerald-500"></i>অর্ডার (২৪ ঘণ্টা)</div><div class="text-2xl font-bold text-gray-900"><span class="count-up-num" data-target="' + live.orders_24h + '">0</span></div></div>' +
+          '<div class="bg-white rounded-2xl p-4 shadow-sm kpi-card-in" style="animation-delay:.2s"><div class="text-[11px] text-gray-500 mb-1"><i class="fas fa-cart-arrow-down mr-1 text-orange-500"></i>ইনকমপ্লিট (২৪ ঘণ্টা)</div><div class="text-2xl font-bold text-gray-900"><span class="count-up-num" data-target="' + live.incomplete_24h + '">0</span></div></div>' +
+        '</div>' +
+
+        // ===== WEEK-OVER-WEEK =====
+        '<div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">' +
+          '<div class="bg-white rounded-2xl p-4 shadow-sm flex items-center justify-between kpi-card-in" style="animation-delay:.22s"><div><div class="text-xs text-gray-500 mb-1">এই সপ্তাহ vs গত সপ্তাহ (অর্ডার)</div><div class="text-xl font-bold">' + wc.orders_this + ' <span class="text-sm text-gray-400 font-normal">/ ' + wc.orders_prev + '</span></div></div>' + trendBadge(wc.orders_change) + '</div>' +
+          '<div class="bg-white rounded-2xl p-4 shadow-sm flex items-center justify-between kpi-card-in" style="animation-delay:.25s"><div><div class="text-xs text-gray-500 mb-1">এই সপ্তাহ vs গত সপ্তাহ (রেভিনিউ)</div><div class="text-xl font-bold">' + money(wc.revenue_this) + ' <span class="text-sm text-gray-400 font-normal">/ ' + money(wc.revenue_prev) + '</span></div></div>' + trendBadge(wc.revenue_change) + '</div>' +
+        '</div>' +
+
+        // ===== FINANCIAL KPIs =====
         '<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">' +
           card('মোট অর্ডার', d.total_orders, 'fa-cart-shopping', 'bg-blue-100 text-blue-600', { raw: d.total_orders }) +
           card('রেভিনিউ (ডেলিভারড)', money(d.revenue), 'fa-sack-dollar', 'bg-emerald-100 text-emerald-600', { raw: d.revenue, prefix: '৳' }) +
@@ -61,7 +140,7 @@
           card('প্রোডাক্ট খরচ', money(d.product_cost), 'fa-box', 'bg-amber-100 text-amber-600', { raw: d.product_cost, prefix: '৳' }) +
           card('অন্যান্য খরচ', money(d.other_expenses), 'fa-receipt', 'bg-gray-100 text-gray-600', { raw: d.other_expenses, prefix: '৳' }) +
         '</div>' +
-        '<div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">' +
+        '<div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">' +
           card('পেন্ডিং', d.pending, 'fa-clock', 'bg-amber-100 text-amber-600', { raw: d.pending }) +
           card('ডেলিভারড', d.delivered, 'fa-circle-check', 'bg-green-100 text-green-600', { raw: d.delivered }) +
           card('বাতিল', d.cancelled, 'fa-circle-xmark', 'bg-red-100 text-red-500', { raw: d.cancelled }) +
@@ -69,11 +148,53 @@
           card('মার্জিন', d.profit_margin + '%', 'fa-percent', 'bg-indigo-100 text-indigo-600', { raw: d.profit_margin, suffix: '%' }) +
           card('ROI', d.roi + '%', 'fa-chart-pie', 'bg-pink-100 text-pink-600', { raw: d.roi, suffix: '%' }) +
         '</div>' +
-        '<div class="grid lg:grid-cols-2 gap-5 mb-6">' +
-          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.35s"><h3 class="font-bold mb-4">রেভিনিউ ও প্রফিট</h3><canvas id="ch-rev" height="220"></canvas></div>' +
-          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.42s"><h3 class="font-bold mb-4">অর্ডার ও অ্যাড খরচ</h3><canvas id="ch-ord" height="220"></canvas></div>' +
+
+        // ===== FUNNEL + LIVE PULSE + RISK =====
+        '<div class="grid lg:grid-cols-3 gap-5 mb-5">' +
+          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.3s">' +
+            '<div class="flex justify-between items-center mb-4"><h3 class="font-bold"><i class="fas fa-filter text-emerald-600 mr-2"></i>কনভার্সন ফানেল</h3><span class="text-xs font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg">CVR ' + fn.conversion_rate + '%</span></div>' +
+            funnelBar('পেজ ভিজিট', fn.pageview, fn.pageview, '#3b82f6') +
+            funnelBar('প্রোডাক্ট দেখেছে', fn.viewcontent, fn.pageview, '#8b5cf6') +
+            funnelBar('চেকআউট শুরু', fn.checkout, fn.pageview, '#f59e0b') +
+            funnelBar('লিড (ফর্ম পূরণ)', fn.lead, fn.pageview, '#f97316') +
+            funnelBar('অর্ডার সম্পন্ন', fn.purchase, fn.pageview, '#059669') +
+          '</div>' +
+          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.34s"><h3 class="font-bold mb-4"><i class="fas fa-heart-pulse text-red-500 mr-2"></i>লাইভ পালস (২৪ ঘণ্টা)</h3><canvas id="ch-pulse" height="210"></canvas></div>' +
+          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.38s"><h3 class="font-bold mb-4"><i class="fas fa-shield-halved text-amber-500 mr-2"></i>রিস্ক ও কাস্টমার</h3>' +
+            '<canvas id="ch-risk" height="130"></canvas>' +
+            '<div class="grid grid-cols-2 gap-2 mt-4 text-center">' +
+              '<div class="bg-gray-50 rounded-xl p-2.5"><div class="text-lg font-bold">' + ent.customers.total + '</div><div class="text-[11px] text-gray-500">মোট কাস্টমার</div></div>' +
+              '<div class="bg-emerald-50 rounded-xl p-2.5"><div class="text-lg font-bold text-emerald-700">' + ent.customers.repeat + '</div><div class="text-[11px] text-gray-500">রিপিট কাস্টমার</div></div>' +
+              '<div class="bg-blue-50 rounded-xl p-2.5"><div class="text-lg font-bold text-blue-700">' + ent.customers.new_in_range + '</div><div class="text-[11px] text-gray-500">নতুন (এই রেঞ্জ)</div></div>' +
+              '<div class="bg-red-50 rounded-xl p-2.5"><div class="text-lg font-bold text-red-600">' + ent.customers.blacklisted + '</div><div class="text-[11px] text-gray-500">ব্ল্যাকলিস্টেড</div></div>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
-        '<div class="bg-white rounded-2xl shadow-sm overflow-hidden kpi-card-in" style="animation-delay:.5s">' +
+
+        // ===== REVENUE/ORDERS CHARTS =====
+        '<div class="grid lg:grid-cols-2 gap-5 mb-5">' +
+          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.42s"><h3 class="font-bold mb-4">রেভিনিউ ও প্রফিট</h3><canvas id="ch-rev" height="220"></canvas></div>' +
+          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.46s"><h3 class="font-bold mb-4">অর্ডার ও অ্যাড খরচ</h3><canvas id="ch-ord" height="220"></canvas></div>' +
+        '</div>' +
+
+        // ===== DISTRICTS + TOP PRODUCTS + LOW STOCK + RECOVERY =====
+        '<div class="grid lg:grid-cols-3 gap-5 mb-5">' +
+          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.5s"><h3 class="font-bold mb-4"><i class="fas fa-map-location-dot text-blue-500 mr-2"></i>টপ জেলা</h3>' + distHtml + '</div>' +
+          '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.54s"><h3 class="font-bold mb-4"><i class="fas fa-trophy text-amber-500 mr-2"></i>টপ প্রোডাক্ট</h3>' + topProdHtml + '</div>' +
+          '<div class="space-y-5">' +
+            '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.58s"><div class="flex justify-between items-center mb-3"><h3 class="font-bold"><i class="fas fa-triangle-exclamation text-red-500 mr-2"></i>স্টক অ্যালার্ট</h3><a href="#/products" class="text-xs text-emerald-600 font-semibold">প্রোডাক্ট →</a></div>' + lowStockHtml + '</div>' +
+            '<div class="bg-white rounded-2xl p-5 shadow-sm kpi-card-in" style="animation-delay:.62s"><div class="flex justify-between items-center mb-3"><h3 class="font-bold"><i class="fas fa-life-ring text-orange-500 mr-2"></i>লিড রিকভারি</h3><a href="#/incomplete" class="text-xs text-emerald-600 font-semibold">বিস্তারিত →</a></div>' +
+              '<div class="grid grid-cols-3 gap-2 text-center">' +
+                '<div class="bg-gray-50 rounded-xl p-2.5"><div class="text-lg font-bold">' + ent.incomplete.total + '</div><div class="text-[11px] text-gray-500">ইনকমপ্লিট</div></div>' +
+                '<div class="bg-emerald-50 rounded-xl p-2.5"><div class="text-lg font-bold text-emerald-700">' + ent.incomplete.converted + '</div><div class="text-[11px] text-gray-500">কনভার্টেড</div></div>' +
+                '<div class="bg-amber-50 rounded-xl p-2.5"><div class="text-lg font-bold text-amber-700">' + ent.incomplete.recovery_rate + '%</div><div class="text-[11px] text-gray-500">রিকভারি রেট</div></div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+
+        // ===== RECENT ORDERS =====
+        '<div class="bg-white rounded-2xl shadow-sm overflow-hidden kpi-card-in" style="animation-delay:.66s">' +
           '<div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center"><h3 class="font-bold">সাম্প্রতিক অর্ডার</h3><a href="#/orders" class="text-sm text-emerald-600 font-semibold">সব দেখুন →</a></div>' +
           orderTable(ords) +
         '</div>',
@@ -81,6 +202,7 @@
 
       if (H.runCountUps) H.runCountUps();
 
+      // ---- Charts ----
       var days = (ch.daily || []).map(function (x) { return x.day.slice(5); });
       var adMap = {};
       (ch.ad_daily || []).forEach(function (x) { adMap[x.day] = x.spend; });
@@ -100,7 +222,24 @@
         ] },
         options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
       });
-    }).catch(apiErr);
+      // Live pulse: hourly orders (last 24h)
+      var hrs = (ent.hourly || []).map(function (x) { return x.hour; });
+      charts.pulse = new Chart(document.getElementById('ch-pulse'), {
+        type: 'line',
+        data: { labels: hrs, datasets: [
+          { label: 'অর্ডার', data: (ent.hourly || []).map(function (x) { return x.orders; }), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)', fill: true, tension: 0.4, pointRadius: 2 }
+        ] },
+        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+      });
+      // Risk doughnut
+      charts.risk = new Chart(document.getElementById('ch-risk'), {
+        type: 'doughnut',
+        data: { labels: ['🟢 Low', '🟡 Medium', '🔴 High'], datasets: [{ data: [ent.risk_mix.low, ent.risk_mix.medium, ent.risk_mix.high], backgroundColor: ['#10b981', '#f59e0b', '#ef4444'], borderWidth: 0 }] },
+        options: { responsive: true, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } } }
+      });
+
+      startDashAutoRefresh();
+    }).catch(function (e) { if (!silent) apiErr(e); });
   }
 
   function orderTable(orders) {
@@ -266,6 +405,7 @@
   // ============ order actions ============
   var AV = window.AV = {
     dashRange: function (r) { dashRange = r; viewDashboard(); },
+    dashRefresh: function () { viewDashboard(); toast('ড্যাশবোর্ড রিফ্রেশ হয়েছে'); },
     oStatus: function (st) { oFilter.status = st; oFilter.page = 1; viewOrders(); },
     oSearch: function () {
       oFilter.search = v('of-search'); oFilter.risk_level = v('of-risk');
@@ -414,6 +554,12 @@
       });
     }
   };
+
+  // Stop the dashboard auto-refresh timer when the user navigates away
+  window.addEventListener('hashchange', function () {
+    var route = location.hash.replace(/^#\//, '').split('/')[0] || 'dashboard';
+    if (route !== 'dashboard') stopDashAutoRefresh();
+  });
 
   // register part-1 views now; part 3 adds the rest
   window.__ADMIN_VIEWS_CORE__ = {
