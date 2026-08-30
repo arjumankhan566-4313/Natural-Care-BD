@@ -218,6 +218,30 @@ r.get('/export/:type', requireAuth('export'), async (c) => {
   } else if (type === 'customers') {
     const res = await db.prepare('SELECT name, phone, address, district, total_orders, delivered_orders, cancelled_orders, returned_orders, total_spent, risk_score, list_status, last_order_at FROM customers ORDER BY id DESC LIMIT 10000').all()
     rows = res.results || []
+  } else if (type === 'customers-meta') {
+    // "শুধু রিয়েল কাস্টমার" এক্সপোর্ট — Facebook Custom Audience / Lookalike আপলোডের জন্য।
+    // Meta-র কাস্টমার লিস্ট ফরম্যাট অনুযায়ী কলাম: phone (দেশের কোড সহ, লিডিং শূন্য ছাড়া),
+    // fn (প্রথম নাম), ln (শেষ নাম, না থাকলে ফাঁকা), ct (শহর/জেলা), value (মোট খরচ — Lookalike-কে
+    // "কারা বেশি টাকা খরচ করে" শেখাতে সাহায্য করে — value-based lookalike)।
+    // ফিল্টার: শুধু যাদের কমপক্ষে ১টা ডেলিভারড অর্ডার আছে (delivered_orders > 0) এবং
+    // blacklist-এ নেই — ফেক/ক্যানসেলড/অসম্পূর্ণ কাস্টমারদের ডেটা দিয়ে Lookalike বানালে
+    // Facebook ভুল ধরনের মানুষ খুঁজে বের করবে, তাই এই ফিল্টার বাধ্যতামূলক এখানে।
+    const res = await db.prepare(
+      `SELECT name, phone, district, total_spent, delivered_orders
+       FROM customers
+       WHERE delivered_orders > 0 AND list_status != 'blacklist'
+       ORDER BY total_spent DESC LIMIT 10000`
+    ).all()
+    const raw = (res.results || []) as any[]
+    rows = raw.map(c => {
+      const parts = String(c.name || '').trim().split(/\s+/)
+      const fn = parts[0] || ''
+      const ln = parts.length > 1 ? parts.slice(1).join(' ') : ''
+      let p = String(c.phone || '').replace(/[^\d]/g, '')
+      if (p.startsWith('0')) p = '880' + p.slice(1)
+      else if (!p.startsWith('880')) p = '880' + p
+      return { phone: p, fn, ln, ct: c.district || '', value: c.total_spent || 0 }
+    })
   } else if (type === 'products') {
     const res = await db.prepare('SELECT name, regular_price, sale_price, product_cost, stock, stock_status, is_active FROM products WHERE is_deleted = 0').all()
     rows = res.results || []

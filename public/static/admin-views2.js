@@ -182,7 +182,10 @@
         '<div class="px-5 py-3 flex justify-between items-center border-t border-gray-100"><div class="text-xs text-gray-500">মোট ' + r.data.total + '</div><div class="flex gap-2">' +
         (r.data.page > 1 ? '<button onclick="AV.cPage(' + (r.data.page - 1) + ')" class="px-3 py-1.5 bg-gray-100 rounded-lg text-xs font-semibold">←</button>' : '') +
         (r.data.page * r.data.limit < r.data.total ? '<button onclick="AV.cPage(' + (r.data.page + 1) + ')" class="px-3 py-1.5 bg-gray-100 rounded-lg text-xs font-semibold">→</button>' : '') + '</div></div></div>' +
-        '<div class="mt-4 text-right"><a href="/api/admin/export/customers" class="inline-block bg-white shadow-sm px-4 py-2 rounded-lg text-sm font-semibold text-gray-700"><i class="fas fa-download mr-1.5"></i>CSV এক্সপোর্ট</a></div>',
+        '<div class="mt-4 flex justify-end gap-2 flex-wrap">' +
+          '<a href="/api/admin/export/customers" class="inline-block bg-white shadow-sm px-4 py-2 rounded-lg text-sm font-semibold text-gray-700"><i class="fas fa-download mr-1.5"></i>CSV এক্সপোর্ট (সব)</a>' +
+          '<a href="/api/admin/export/customers-meta" class="inline-block bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm px-4 py-2 rounded-lg text-sm font-semibold" title="শুধু ডেলিভারড/রিয়েল কাস্টমার — Facebook Custom Audience / Lookalike আপলোডের জন্য রেডি ফরম্যাট (phone, fn, ln, ct, value)"><i class="fab fa-facebook mr-1.5"></i>Facebook Audience CSV</a>' +
+        '</div>',
         'কাস্টমার');
     }).catch(apiErr);
   }
