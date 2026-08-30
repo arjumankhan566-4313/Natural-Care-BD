@@ -164,14 +164,16 @@
     // ===== HEADER =====
     '<header class="bg-white/95 backdrop-blur sticky top-0 z-40 border-b border-gray-100 shadow-sm">' +
       '<div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">' +
-        '<div class="flex items-center gap-2 brand-name-logo-in">' +
+        '<div class="flex items-center gap-2" id="brand-3d-block">' +
+          '<span class="logo-3d-card" id="header-logo-3d">' +
           (s.brand_logo ? '<img src="' + esc(s.brand_logo) + '" alt="logo" class="h-11 w-11 object-contain">' :
           '<div class="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center text-white"><i class="fas fa-leaf"></i></div>') +
-          '<div><div class="font-bold text-emerald-800 leading-tight">' + esc(s.brand_name) + '</div>' +
+          '</span>' +
+          '<div><div class="font-bold text-emerald-800 leading-tight brand-name-3d-load">' + esc(s.brand_name) + '</div>' +
           '<div class="text-xs text-gray-500">' + esc(s.brand_tagline || '') + '</div></div>' +
         '</div>' +
         '<div class="flex items-center gap-2">' +
-          '<a href="tel:' + esc(s.support_phone) + '" class="hidden sm:flex items-center gap-2 text-sm font-semibold text-emerald-700"><i class="fas fa-phone"></i>' + esc(s.support_phone) + '</a>' +
+          '<a href="tel:' + esc(s.support_phone) + '" class="hidden sm:flex items-center gap-2 text-sm font-semibold text-emerald-700"><i class="fas fa-phone phone-ring-icon"></i>' + esc(s.support_phone) + '</a>' +
           '<a href="/track-order" class="text-xs sm:text-sm bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg font-medium"><i class="fas fa-truck-fast mr-1"></i>অর্ডার ট্র্যাক</a>' +
         '</div>' +
       '</div>' +
@@ -192,8 +194,8 @@
           '</div>' : '') +
           '<div id="countdown-wrap" class="mb-6"></div>' +
           '<div class="flex flex-col sm:flex-row gap-3">' +
-            '<button onclick="NCB.scrollToOrder()" class="btn-primary pulse-cta text-white font-bold text-lg px-8 py-4 rounded-xl"><i class="fas fa-cart-shopping mr-2"></i>অর্ডার করতে এখনই ক্লিক করুন</button>' +
-            '<a href="tel:' + esc(s.support_phone) + '" class="border-2 border-emerald-600 text-emerald-700 font-bold text-lg px-8 py-4 rounded-xl text-center hover:bg-emerald-50 transition"><i class="fas fa-phone mr-2"></i>কল করুন</a>' +
+            '<button onclick="NCB.scrollToOrder()" class="btn-primary pulse-cta btn-tilt btn-shine-loop btn-pop-in-start text-white font-bold text-lg px-8 py-4 rounded-xl" data-tilt="1"><i class="fas fa-cart-shopping mr-2"></i>অর্ডার করতে এখনই ক্লিক করুন</button>' +
+            '<a href="tel:' + esc(s.support_phone) + '" class="btn-tilt btn-pop-in-start border-2 border-emerald-600 text-emerald-700 font-bold text-lg px-8 py-4 rounded-xl text-center hover:bg-emerald-50 transition" data-tilt="1" data-pop-delay="120"><i class="fas fa-phone mr-2 phone-ring-icon"></i>কল করুন</a>' +
           '</div>' +
           '<div class="flex flex-wrap gap-3 mt-6 text-sm">' +
             '<span class="flex items-center gap-1.5 text-gray-600"><i class="fas fa-hand-holding-dollar text-emerald-600"></i> ক্যাশ অন ডেলিভারি</span>' +
@@ -226,7 +228,7 @@
         [1, 2, 3, 4].map(function (i) {
           var num = s['trust_stat' + i + '_number'], lab = s['trust_stat' + i + '_label'], icon = s['trust_stat' + i + '_icon'];
           if (!num && !lab) return '';
-          return '<div class="fade-up text-center bg-emerald-50 rounded-2xl p-6">' +
+          return '<div class="box-pop-in text-center bg-emerald-50 rounded-2xl p-6">' +
             '<div class="w-12 h-12 mx-auto mb-3 rounded-full bg-emerald-100 flex items-center justify-center"><i class="fas ' + esc(icon || 'fa-star') + ' text-emerald-600 text-lg"></i></div>' +
             '<div class="text-2xl md:text-3xl font-extrabold text-emerald-700 mb-1">' + esc(num) + '</div>' +
             '<div class="text-sm text-gray-600 font-medium">' + esc(lab) + '</div></div>';
@@ -244,11 +246,11 @@
         '<h2 class="text-2xl md:text-3xl font-bold text-gray-900 mb-3">' + esc(s.bsti_title || 'BSTI অনুমোদিত পণ্য') + '</h2>' +
         '<p class="text-gray-600 max-w-2xl mx-auto mb-6">' + esc(s.bsti_description || '') + '</p>' +
         (s.bsti_certificate_image ?
-          '<div class="inline-block bg-white rounded-2xl shadow-xl border border-emerald-100 p-3 md:p-4 max-w-md mx-auto">' +
+          '<div class="box-pop-in inline-block bg-white rounded-2xl shadow-xl border border-emerald-100 p-3 md:p-4 max-w-md mx-auto">' +
             '<img src="' + esc(s.bsti_certificate_image) + '" alt="BSTI সার্টিফিকেট" class="rounded-xl w-full cursor-zoom-in" onclick="NCB.zoomCert(this.src)">' +
             '<div class="text-xs text-gray-400 mt-2"><i class="fas fa-magnifying-glass-plus mr-1"></i>বড় করে দেখতে ছবিতে ট্যাপ করুন</div>' +
           '</div>' :
-          '<div class="inline-flex flex-col items-center gap-3 bg-white rounded-2xl shadow-lg border border-emerald-100 px-8 py-6 max-w-md mx-auto">' +
+          '<div class="box-pop-in inline-flex flex-col items-center gap-3 bg-white rounded-2xl shadow-lg border border-emerald-100 px-8 py-6 max-w-md mx-auto">' +
             '<div class="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-lg"><i class="fas fa-award text-white text-3xl"></i></div>' +
             '<div class="font-bold text-emerald-800">BSTI সার্টিফাইড</div>' +
             '<div class="flex items-center gap-4 text-emerald-700 text-sm font-semibold"><span><i class="fas fa-check-circle mr-1"></i>মান নিয়ন্ত্রিত</span><span><i class="fas fa-check-circle mr-1"></i>নিরাপদ</span><span><i class="fas fa-check-circle mr-1"></i>অনুমোদিত</span></div>' +
@@ -263,7 +265,7 @@
         '<h2 class="text-2xl md:text-3xl font-bold text-center text-gray-900 mb-10">কেন আমাদের বেছে নেবেন?</h2>' +
         '<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">' +
         d.benefits.map(function (b) {
-          return '<article class="fade-up bg-white rounded-2xl p-6 text-center shadow-sm hover:shadow-md transition">' +
+          return '<article class="box-pop-in bg-white rounded-2xl p-6 text-center shadow-sm hover:shadow-md transition">' +
             '<div class="w-14 h-14 mx-auto mb-4 rounded-full bg-emerald-100 flex items-center justify-center"><i class="fas ' + esc(b.icon) + ' text-emerald-600 text-xl"></i></div>' +
             '<h3 class="font-bold text-gray-900 mb-2">' + esc(b.title) + '</h3>' +
             '<p class="text-sm text-gray-600">' + esc(b.description) + '</p></article>';
@@ -277,7 +279,7 @@
         '<h2 class="text-2xl md:text-3xl font-bold text-center text-gray-900 mb-10">' + esc(howItWorks.title) + '</h2>' +
         '<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">' +
         (howItWorks.content.steps || []).map(function (st, i) {
-          return '<div class="fade-up relative bg-white border border-gray-100 rounded-2xl p-6 text-center shadow-sm">' +
+          return '<div class="box-pop-in relative bg-white border border-gray-100 rounded-2xl p-6 text-center shadow-sm">' +
             '<div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-emerald-600 text-white w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold">' + (i + 1) + '</div>' +
             '<i class="fas ' + esc(st.icon) + ' text-3xl text-emerald-600 mb-3 mt-2"></i>' +
             '<h3 class="font-bold mb-1">' + esc(st.title) + '</h3>' +
@@ -292,7 +294,7 @@
         '<h2 class="text-2xl md:text-3xl font-bold text-center text-gray-900 mb-10">সম্মানিত কাস্টমারদের মতামত</h2>' +
         '<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">' +
         d.reviews.map(function (rv) {
-          return '<article class="review-card fade-up bg-white rounded-2xl p-6">' +
+          return '<article class="review-card box-pop-in bg-white rounded-2xl p-6">' +
             '<div class="mb-3">' + stars(rv.rating) + '</div>' +
             '<p class="text-gray-700 mb-4">"' + esc(rv.review_text) + '"</p>' +
             (rv.screenshot_url ? '<img src="' + esc(rv.screenshot_url) + '" alt="কাস্টমার রিভিউ স্ক্রিনশট" class="rounded-xl w-full max-h-64 object-cover mb-4 cursor-zoom-in border border-gray-100" onclick="NCB.zoomCert(this.src)" loading="lazy">' : '') +
@@ -312,7 +314,7 @@
       '<div class="max-w-3xl mx-auto px-4">' +
         '<h2 class="text-2xl md:text-3xl font-bold text-center text-gray-900 mb-8">সাধারণ জিজ্ঞাসা</h2>' +
         d.faqs.map(function (f, i) {
-          return '<div class="faq-item bg-white border border-gray-200 rounded-xl mb-3 overflow-hidden" id="faq-' + i + '">' +
+          return '<div class="faq-item box-pop-in bg-white border border-gray-200 rounded-xl mb-3 overflow-hidden" id="faq-' + i + '">' +
             '<button class="w-full flex items-center justify-between px-5 py-4 text-left font-semibold text-gray-800" onclick="NCB.toggleFaq(' + i + ')">' +
             '<span>' + esc(f.question) + '</span><i class="fas fa-chevron-down faq-icon text-emerald-600"></i></button>' +
             '<div class="faq-answer"><p class="px-5 pb-4 text-gray-600">' + esc(f.answer) + '</p></div></div>';
@@ -325,7 +327,7 @@
         '<div class="font-bold text-white text-lg mb-2">' + esc(s.brand_name) + '</div>' +
         '<p class="text-sm mb-5">' + esc(s.brand_tagline || '') + '</p>' +
         '<div class="flex justify-center gap-3 mb-6">' +
-          '<a href="tel:' + esc(s.support_phone) + '" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold"><i class="fas fa-phone mr-1.5"></i>কল করুন</a>' +
+          '<a href="tel:' + esc(s.support_phone) + '" class="btn-tilt bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold" data-tilt="1"><i class="fas fa-phone mr-1.5 phone-ring-icon"></i>কল করুন</a>' +
           (s.whatsapp_number ? '<a href="https://wa.me/' + esc(s.whatsapp_number) + '" target="_blank" rel="noopener" class="bg-green-500 hover:bg-green-600 text-white px-5 py-2.5 rounded-lg text-sm font-semibold"><i class="fab fa-whatsapp mr-1.5"></i>WhatsApp</a>' : '') +
           (s.messenger_link ? '<a href="' + esc(s.messenger_link) + '" target="_blank" rel="noopener" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-semibold"><i class="fab fa-facebook-messenger mr-1.5"></i>Messenger</a>' : '') +
         '</div>' +
@@ -335,11 +337,12 @@
 
     // ===== STICKY MOBILE CTA =====
     '<div id="sticky-cta" class="sticky-cta md:hidden bg-white border-t border-gray-200 p-3 hidden">' +
-      '<button onclick="NCB.scrollToOrder()" class="btn-primary w-full text-white font-bold py-3.5 rounded-xl text-base"><i class="fas fa-truck mr-2"></i>🚚 Cash on Delivery | এখনই অর্ডার করুন</button>' +
+      '<button onclick="NCB.scrollToOrder()" class="btn-primary btn-tilt btn-shine-loop w-full text-white font-bold py-3.5 rounded-xl text-base"><i class="fas fa-truck mr-2"></i>🚚 Cash on Delivery | এখনই অর্ডার করুন</button>' +
     '</div>';
 
     initCountdown();
     initScrollAnimations();
+    initAdvanced3D();
     initStickyCta();
     initBannerSlider();
     initAutosave();
@@ -498,18 +501,18 @@
           (p.features.length ? '<ul class="space-y-2 mb-5">' + p.features.map(function (f) {
             return '<li class="flex items-start gap-2"><i class="fas fa-circle-check text-emerald-600 mt-1"></i><span>' + esc(f) + '</span></li>';
           }).join('') + '</ul>' : '') +
-          (p.benefits.length ? '<div class="bg-emerald-50 rounded-xl p-5 mb-5"><h3 class="font-bold text-emerald-900 mb-3"><i class="fas fa-star mr-1.5"></i>উপকারিতা</h3><ul class="space-y-2">' + p.benefits.map(function (b) {
+          (p.benefits.length ? '<div class="box-pop-in bg-emerald-50 rounded-xl p-5 mb-5"><h3 class="font-bold text-emerald-900 mb-3"><i class="fas fa-star mr-1.5"></i>উপকারিতা</h3><ul class="space-y-2">' + p.benefits.map(function (b) {
             return '<li class="flex items-start gap-2 text-sm"><i class="fas fa-leaf text-emerald-600 mt-0.5"></i><span>' + esc(b) + '</span></li>';
           }).join('') + '</ul></div>' : '') +
-          (p.ingredients ? '<details class="mb-3 bg-white border border-gray-200 rounded-xl"><summary class="px-4 py-3 font-semibold cursor-pointer">উপাদানসমূহ</summary><p class="px-4 pb-4 text-sm text-gray-600">' + esc(p.ingredients) + '</p></details>' : '') +
-          (p.usage_instructions ? '<details class="mb-3 bg-white border border-gray-200 rounded-xl"><summary class="px-4 py-3 font-semibold cursor-pointer">ব্যবহারবিধি</summary><p class="px-4 pb-4 text-sm text-gray-600">' + esc(p.usage_instructions) + '</p></details>' : '') +
+          (p.ingredients ? '<details class="box-pop-in mb-3 bg-white border border-gray-200 rounded-xl"><summary class="px-4 py-3 font-semibold cursor-pointer">উপাদানসমূহ</summary><p class="px-4 pb-4 text-sm text-gray-600">' + esc(p.ingredients) + '</p></details>' : '') +
+          (p.usage_instructions ? '<details class="box-pop-in mb-3 bg-white border border-gray-200 rounded-xl"><summary class="px-4 py-3 font-semibold cursor-pointer">ব্যবহারবিধি</summary><p class="px-4 pb-4 text-sm text-gray-600">' + esc(p.usage_instructions) + '</p></details>' : '') +
           (p.package_details ? '<p class="text-sm text-gray-500 mb-4"><i class="fas fa-box mr-1.5"></i>' + esc(p.package_details) + '</p>' : '') +
           '<div class="flex items-center gap-2 mb-5">' +
             (p.stock_status === 'out_of_stock' ? '<span class="bg-red-100 text-red-700 text-sm font-bold px-3 py-1 rounded-full"><i class="fas fa-circle-xmark mr-1"></i>স্টকে নেই</span>' :
              p.stock_status === 'low_stock' ? '<span class="bg-amber-100 text-amber-700 text-sm font-bold px-3 py-1 rounded-full"><i class="fas fa-triangle-exclamation mr-1"></i>সীমিত স্টক!</span>' :
              '<span class="bg-emerald-100 text-emerald-700 text-sm font-bold px-3 py-1 rounded-full"><i class="fas fa-circle-check mr-1"></i>স্টকে আছে</span>') +
           '</div>' +
-          '<button onclick="NCB.scrollToOrder()" class="btn-primary text-white font-bold text-lg px-8 py-4 rounded-xl w-full sm:w-auto"><i class="fas fa-cart-shopping mr-2"></i>এখনই অর্ডার করুন</button>' +
+          '<button onclick="NCB.scrollToOrder()" class="btn-primary btn-tilt btn-shine-loop text-white font-bold text-lg px-8 py-4 rounded-xl w-full sm:w-auto" data-tilt="1"><i class="fas fa-cart-shopping mr-2"></i>এখনই অর্ডার করুন</button>' +
         '</div>' +
       '</div></section>';
   }
@@ -525,7 +528,7 @@
           '<h3 class="font-bold text-gray-900 mb-3"><i class="fas fa-box-open text-emerald-600 mr-1.5"></i>প্যাকেজ নির্বাচন করুন</h3>' +
           '<div class="space-y-3 mb-6" id="package-list">' +
           (pkgs.length ? pkgs.map(function (pk) {
-            return '<div class="package-card border-2 border-gray-200 rounded-xl p-4 flex items-center justify-between" data-pkg="' + pk.id + '" onclick="NCB.selectPackage(' + pk.id + ')">' +
+            return '<div class="package-card box-pop-in border-2 border-gray-200 rounded-xl p-4 flex items-center justify-between" data-pkg="' + pk.id + '" onclick="NCB.selectPackage(' + pk.id + ')">' +
               '<div class="flex items-center gap-3">' +
                 '<div class="pkg-radio w-5 h-5 rounded-full border-2 border-gray-300 flex items-center justify-center"><div class="pkg-dot w-2.5 h-2.5 rounded-full bg-emerald-600 hidden"></div></div>' +
                 '<div><div class="font-bold text-gray-900">' + esc(pk.name) +
@@ -536,7 +539,7 @@
               (pk.regular_price > pk.price ? '<div class="text-xs text-gray-400 line-through">' + money(pk.regular_price) + '</div>' : '') + '</div>' +
             '</div>';
           }).join('') :
-          '<div class="package-card border-2 border-gray-200 rounded-xl p-4" data-pkg="0" onclick="NCB.selectPackage(0)"><div class="font-bold">' + esc(product.name) + ' — ' + money(product.sale_price) + '</div></div>') +
+          '<div class="package-card box-pop-in border-2 border-gray-200 rounded-xl p-4" data-pkg="0" onclick="NCB.selectPackage(0)"><div class="font-bold">' + esc(product.name) + ' — ' + money(product.sale_price) + '</div></div>') +
           '</div>' +
 
           '<form id="order-form" onsubmit="NCB.submitOrder(event)">' +
@@ -576,7 +579,7 @@
 
             '<div id="form-error" class="hidden mb-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl p-4"></div>' +
 
-            '<button type="submit" id="submit-btn" class="btn-primary w-full text-white font-bold text-lg py-4 rounded-xl">' +
+            '<button type="submit" id="submit-btn" class="btn-primary btn-tilt btn-shine-loop w-full text-white font-bold text-lg py-4 rounded-xl" data-tilt="1">' +
             '<i class="fas fa-check-circle mr-2"></i>অর্ডার কনফার্ম করুন (ক্যাশ অন ডেলিভারি)</button>' +
             '<p class="text-center text-xs text-gray-500 mt-3"><i class="fas fa-lock mr-1"></i>আপনার তথ্য সম্পূর্ণ নিরাপদ থাকবে</p>' +
 
@@ -629,7 +632,53 @@
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) { if (e.isIntersecting) e.target.classList.add('visible'); });
     }, { threshold: 0.1 });
-    document.querySelectorAll('.fade-up').forEach(function (el) { io.observe(el); });
+    document.querySelectorAll('.box-pop-in').forEach(function (el) { io.observe(el); });
+  }
+
+  // ============ ADVANCED 3D — LOGO / BRAND-NAME hover-tilt + BUTTON mouse-tilt ============
+  // Desktop-only (hover:hover + pointer:fine, checked via matchMedia) so touch devices
+  // never get a stuck tilt transform. Mobile still gets the CSS entrance/shine/ring
+  // animations above — those work on every device.
+  function initAdvanced3D() {
+    var canTilt = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+    // Header logo + brand block: subtle 3D tilt following the cursor
+    var brandBlock = document.getElementById('brand-3d-block');
+    var logoCard = document.getElementById('header-logo-3d');
+    if (canTilt && brandBlock && logoCard) {
+      brandBlock.addEventListener('mousemove', function (e) {
+        var r = brandBlock.getBoundingClientRect();
+        var px = (e.clientX - r.left) / r.width - 0.5;
+        var py = (e.clientY - r.top) / r.height - 0.5;
+        logoCard.style.transform = 'perspective(500px) rotateY(' + (px * 22) + 'deg) rotateX(' + (py * -22) + 'deg) scale(1.08)';
+      });
+      brandBlock.addEventListener('mouseleave', function () {
+        logoCard.style.transform = 'perspective(500px) rotateY(0deg) rotateX(0deg) scale(1)';
+      });
+    }
+
+    // Order / call buttons: perspective tilt that follows the cursor position on the button
+    if (canTilt) {
+      document.querySelectorAll('[data-tilt="1"]').forEach(function (btn) {
+        btn.addEventListener('mousemove', function (e) {
+          var r = btn.getBoundingClientRect();
+          var px = (e.clientX - r.left) / r.width - 0.5;
+          var py = (e.clientY - r.top) / r.height - 0.5;
+          btn.style.transform = 'perspective(600px) rotateX(' + (py * -10) + 'deg) rotateY(' + (px * 10) + 'deg) translateY(-2px) scale(1.02)';
+        });
+        btn.addEventListener('mouseleave', function () {
+          btn.style.transform = '';
+        });
+      });
+    }
+
+    // One-shot pop-in for buttons using the transition-based start/go pair
+    // (kept separate from `animation`-driven elements like .pulse-cta so the two
+    // never fight over the same CSS `animation` shorthand property).
+    document.querySelectorAll('.btn-pop-in-start').forEach(function (btn) {
+      var delay = Number(btn.dataset.popDelay || 0);
+      setTimeout(function () { btn.classList.add('btn-pop-in-go'); }, delay);
+    });
   }
   function initStickyCta() {
     var sticky = document.getElementById('sticky-cta');
@@ -807,7 +856,7 @@
         '</div>' +
         '<div class="space-y-3">' +
           '<a href="/track-order" class="block bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl"><i class="fas fa-truck-fast mr-2"></i>অর্ডার ট্র্যাক করুন</a>' +
-          '<a href="tel:' + esc(s.support_phone) + '" class="block border-2 border-gray-200 hover:border-emerald-500 text-gray-700 font-semibold py-3 rounded-xl"><i class="fas fa-headset mr-2"></i>সাপোর্ট: ' + esc(s.support_phone) + '</a>' +
+          '<a href="tel:' + esc(s.support_phone) + '" class="btn-tilt block border-2 border-gray-200 hover:border-emerald-500 text-gray-700 font-semibold py-3 rounded-xl" data-tilt="1"><i class="fas fa-headset mr-2 phone-ring-icon"></i>সাপোর্ট: ' + esc(s.support_phone) + '</a>' +
           '<a href="/" class="block text-sm text-gray-400 hover:text-gray-600 py-2">← হোমপেজে ফিরে যান</a>' +
         '</div>' +
       '</div></div>';
