@@ -2,6 +2,16 @@
 html { scroll-behavior: smooth; }
 /* Prevent horizontal wobble from any transformed element (fixes pinch/zoom-feel on mobile) */
 html, body { overflow-x: hidden; }
+/* ============ SCROLL-JUMP / ZOOM-FEEL HARD FIX ============
+   1. overflow-anchor:none — disables browser "scroll anchoring" completely.
+      Scroll anchoring is what yanked the page BACK UP while the user scrolled
+      down (the browser tried to re-anchor to elements that were animating in).
+   2. touch-action:manipulation — kills the 300ms double-tap-to-zoom gesture on
+      phones, which felt like the page "zooming out" when users tapped while
+      scrolling. Pinch-zoom stays available for accessibility.
+*/
+html, body { overflow-anchor: none; }
+body { touch-action: manipulation; }
 
 .btn-primary {
   background: linear-gradient(135deg, #059669 0%, #047857 100%);
@@ -339,15 +349,18 @@ img { max-width: 100%; }
    animated here — opacity of the text is NEVER touched, so text
    never disappears and stays fully readable at all times.
    ============================================================ */
-/* ZOOM-BUG FIX: entrance is now a simple, small fade-slide — NO scale, NO rotateX,
-   NO perspective anywhere. The old scale(.94)+rotateX(8deg) entrance is what made
-   the whole page look like it was "zooming in/out" while scrolling or hovering. */
+/* ZOOM-BUG FIX v2 (FINAL): entrance transforms are now removed on ALL devices
+   (desktop included). Any translateY on elements entering the viewport moved
+   content while the user was scrolling, which read as a zoom/jump effect and
+   confused scroll anchoring. Boxes now appear in place — only shadow, border
+   and the one-time background sheen animate. Nothing on this page moves
+   during scroll anymore. */
 .box-pop-in {
   position: relative;
-  transform: translateY(16px);
-  transition: transform .5s cubic-bezier(.16,1,.3,1), box-shadow .3s ease, border-color .3s ease, background-color .3s ease;
+  transform: none;
+  transition: box-shadow .3s ease, border-color .3s ease, background-color .3s ease;
 }
-.box-pop-in.visible { transform: translateY(0); }
+.box-pop-in.visible { transform: none; }
 /* Hover: shadow-only highlight — zero movement, zero zoom. */
 @media (hover: hover) and (pointer: fine) {
   .box-pop-in:hover {
@@ -356,17 +369,18 @@ img { max-width: 100%; }
 }
 
 /* ============ MOBILE SCROLL FIX ============
-   On touch devices the 3D perspective entrance transforms (translateY+rotateX while
-   scrolling) broke the browser's scroll anchoring — scrolling down would visibly
-   yank the page back up. On mobile we disable ALL entrance transforms for content
-   boxes: cards simply appear in place (shadow/border transitions kept), so the page
-   scrolls perfectly smoothly. Desktop keeps the full 3D entrance. */
+   Entrance transforms are already disabled globally above; on touch devices we
+   additionally drop the sheen animation and neutralize .fade-up so absolutely
+   nothing animates during scroll on phones. */
 @media (max-width: 768px), (pointer: coarse) {
-  .box-pop-in { transform: none !important; transition: box-shadow .3s ease, border-color .3s ease, background-color .3s ease; }
+  .box-pop-in { transform: none !important; }
   .box-pop-in.visible { transform: none !important; }
   .box-pop-in.visible::after { animation: none; }
   .fade-up { opacity: 1; transform: none; }
 }
+/* .fade-up is scroll-triggered movement too — neutralize on desktop as well */
+.fade-up { opacity: 1; transform: none; }
+.fade-up.visible { opacity: 1; transform: none; }
 /* One-time subtle sheen across the box surface when it enters view. Uses a NEGATIVE
    z-index so it paints behind the box's text content (layer order: box background <
    negative-z-index descendants < normal in-flow text) — the sheen can never cover or

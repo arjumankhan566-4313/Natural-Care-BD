@@ -12,7 +12,7 @@
 - **Landing Page**: `/`
 - **Order Tracking**: `/track-order`
 - **Admin Panel**: `/admin` — লগইন: `arjumankhan566@gmail.com` (পাসওয়ার্ড admin panel মালিকের কাছে)
-- **Deployment**: ✅ Cloudflare Pages (project: `natural-care-bd`, D1: `natural-care-bd-production`) — Last deployed: 2026-08-29 (Meta CAPI EMQ ফিক্স: fbc ms-timestamp bug, fbp/fbc end-to-end forwarding, autocomplete attrs)
+- **Deployment**: ✅ Cloudflare Pages (project: `natural-care-bd`, D1: `natural-care-bd-production`) — Last deployed: 2026-08-30 (স্ক্রল-জাম্প/জুম-ইফেক্ট চূড়ান্ত ফিক্স: overflow-anchor:none, touch-action:manipulation, সব entrance transform অপসারণ)
 
 ### Meta Pixel + CAPI Fix Log (2026-08-29)
 - ✅ **fbc timestamp bug ফিক্স**: `fbc` কুকি/ভ্যালু রিকনস্ট্রাক্ট করার সময় আগে সেকেন্ড ব্যবহার হতো, Meta স্পেক অনুযায়ী মিলিসেকেন্ড লাগে — এখন ঠিক করা হয়েছে (client `landing.js` + server `helpers.ts`)।
