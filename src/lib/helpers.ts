@@ -331,8 +331,18 @@ export async function applyOrderStatusChange(
   if (newStatus === 'shipped') extra.push('shipped_at = CURRENT_TIMESTAMP')
   if (newStatus === 'delivered') { extra.push('delivered_at = CURRENT_TIMESTAMP'); extra.push('paid_amount = grand_total') }
 
-  await db.prepare(`UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP${extra.length ? ', ' + extra.join(', ') : ''} WHERE id = ?`)
-    .bind(newStatus, order.id).run()
+  // Atomic conditional UPDATE: only actually change the row (and therefore only run the
+  // side effects below) if the order's status still matches what the caller read as
+  // `oldStatus`. Without this guard, two callers racing on the same order (e.g. the
+  // courier auto-sync engine calling this from two overlapping requests) could both pass
+  // their own stale "current status" check and both apply stock/profit/SMS/history side
+  // effects for the same transition — this bit us once already for courier_status_logs,
+  // so the same pattern is applied here pre-emptively for order.status.
+  const upd = await db.prepare(
+    `UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP${extra.length ? ', ' + extra.join(', ') : ''} WHERE id = ? AND status = ?`
+  ).bind(newStatus, order.id, oldStatus).run()
+  if ((upd.meta?.changes || 0) === 0) return { ok: false, message: 'status_changed_concurrently' }
+
   await db.prepare('INSERT INTO order_status_history (order_id, from_status, to_status, note, changed_by) VALUES (?, ?, ?, ?, ?)')
     .bind(order.id, oldStatus, newStatus, note || '', changedBy).run()
 

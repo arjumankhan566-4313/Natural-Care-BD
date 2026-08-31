@@ -149,23 +149,29 @@ export async function syncOneOrder(db: D1Database, order: any, courier: any, ctx
       INSERT INTO courier_status_logs (order_id, courier, old_status, new_status, raw_status, source)
       VALUES (?, ?, ?, ?, ?, 'api')
     `).bind(order.id, courier.name || 'Steadfast', oldStatus || null, newStatus, newStatus).run()
-
-    // Auto-advance the main order lifecycle status too (see deriveOrderStatus above) — this
-    // is the behavior the user explicitly asked for: courier-side progress must show up on
-    // the main order status without any manual admin click.
-    const derived = deriveOrderStatus(newStatus, order.status)
-    if (derived) {
-      await applyOrderStatusChange(db, order, derived, 'Steadfast (Auto)',
-        `স্বয়ংক্রিয়ভাবে আপডেট — Steadfast স্ট্যাটাস: ${label}`, ctx)
-    }
   } else {
-    // Unchanged (or lost the race to a concurrent sync of the same order) — still record
-    // that we successfully checked: refresh last_synced_at + clear any stale error, but
-    // only if we didn't just lose a genuine concurrent update (courier_sync_error/attempts
-    // reset is harmless either way since the other writer already reset them to the same values).
+    // courier_status text itself didn't change this time (Steadfast returned the same value
+    // as last check) — still record that we successfully checked: refresh last_synced_at +
+    // clear any stale error.
     await db.prepare(`
       UPDATE orders SET courier_last_synced_at = datetime('now'), courier_sync_error = '', courier_sync_attempts = 0 WHERE id = ?
     `).bind(order.id).run()
+  }
+
+  // Auto-advance the main order lifecycle status — checked on EVERY successful sync, not only
+  // when courier_status just changed. This matters for orders whose courier_status was already
+  // recorded (e.g. by an earlier sync, or one that ran before this auto-advance feature shipped)
+  // but whose main order.status hadn't caught up yet: without this unconditional check, an order
+  // stuck at courier_status='in_review' / order.status='confirmed' would sync successfully every
+  // 5 minutes forever and NEVER move to 'shipped', because `changed` would stay false on every
+  // subsequent check. Using the live Steadfast `newStatus` (not just a just-changed flag) against
+  // the CURRENT order.status guarantees the two fields always converge, however they got out of
+  // sync. deriveOrderStatus() itself is idempotent (returns null once already aligned), so this
+  // is always cheap/no-op once the order has caught up.
+  const derived = deriveOrderStatus(newStatus, order.status)
+  if (derived) {
+    await applyOrderStatusChange(db, order, derived, 'Steadfast (Auto)',
+      `স্বয়ংক্রিয়ভাবে আপডেট — Steadfast স্ট্যাটাস: ${label}`, ctx)
   }
 
   return { ok: true, changed, status: newStatus, message: 'OK' }
