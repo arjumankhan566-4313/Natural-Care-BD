@@ -24,7 +24,7 @@ r.post('/sync-now/:orderId', async (c) => {
   const courier = await db.prepare('SELECT * FROM couriers WHERE id = ?').bind(order.courier_id).first<any>()
   if (!courier) return c.json({ error: 'no_courier', message: 'কুরিয়ার পাওয়া যায়নি' }, 400)
 
-  const result = await syncOneOrder(db, order, courier)
+  const result = await syncOneOrder(db, order, courier, c)
   if (!result.ok) {
     return c.json({ success: false, message: result.message }, 502)
   }

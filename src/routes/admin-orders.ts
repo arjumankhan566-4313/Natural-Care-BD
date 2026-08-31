@@ -1,7 +1,7 @@
 // ============ Admin: Orders management ============
 import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
-import { auditLog, notify, recalcOrderProfit, refreshCustomerStats, ORDER_STATUSES, validBDPhone, normalizePhone, getSettings, sendSms, fillSmsTemplate, runBackground } from '../lib/helpers'
+import { auditLog, notify, recalcOrderProfit, refreshCustomerStats, ORDER_STATUSES, validBDPhone, normalizePhone, getSettings, sendSms, fillSmsTemplate, runBackground, applyOrderStatusChange } from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
 import { isSteadfast, courierApiReady, steadfastCreateOrder } from '../lib/steadfast'
 
@@ -99,64 +99,10 @@ r.put('/:id/status', async (c) => {
 
   const order = await db.prepare('SELECT * FROM orders WHERE id = ? AND is_deleted = 0').bind(id).first<any>()
   if (!order) return c.json({ error: 'not_found' }, 404)
-  const oldStatus = order.status
-  if (oldStatus === status) return c.json({ error: 'same_status', message: 'অর্ডারটি ইতিমধ্যে এই স্ট্যাটাসে আছে' }, 400)
+  if (order.status === status) return c.json({ error: 'same_status', message: 'অর্ডারটি ইতিমধ্যে এই স্ট্যাটাসে আছে' }, 400)
 
-  const extra: string[] = []
-  const params: any[] = []
-  if (status === 'shipped') { extra.push('shipped_at = CURRENT_TIMESTAMP') }
-  if (status === 'delivered') { extra.push('delivered_at = CURRENT_TIMESTAMP'); extra.push('paid_amount = grand_total') }
-
-  await db.prepare(`UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP${extra.length ? ', ' + extra.join(', ') : ''} WHERE id = ?`)
-    .bind(status, id).run()
-  await db.prepare('INSERT INTO order_status_history (order_id, from_status, to_status, note, changed_by) VALUES (?, ?, ?, ?, ?)')
-    .bind(id, oldStatus, status, note || '', user.username).run()
-
-  // Stock deduction on confirm; restore on cancel/return (if it was confirmed before)
-  const confirmedStatuses = ['confirmed', 'processing', 'ready_to_ship', 'shipped', 'out_for_delivery', 'delivered']
-  const wasConfirmed = confirmedStatuses.includes(oldStatus)
-  const nowConfirmed = confirmedStatuses.includes(status)
-  const items = await db.prepare('SELECT product_id, quantity FROM order_items WHERE order_id = ?').bind(id).all()
-  if (!wasConfirmed && nowConfirmed) {
-    for (const it of (items.results || []) as any[]) {
-      await db.prepare(`UPDATE products SET stock = MAX(0, stock - ?), stock_status = CASE WHEN stock - ? <= 0 THEN 'out_of_stock' WHEN stock - ? <= low_stock_threshold THEN 'low_stock' ELSE 'in_stock' END WHERE id = ?`)
-        .bind(it.quantity, it.quantity, it.quantity, it.product_id).run()
-    }
-  }
-  if (wasConfirmed && (status === 'cancelled' || status === 'returned')) {
-    // restore stock (business rule: restore by default)
-    for (const it of (items.results || []) as any[]) {
-      await db.prepare(`UPDATE products SET stock = stock + ?, stock_status = CASE WHEN stock + ? > low_stock_threshold THEN 'in_stock' WHEN stock + ? > 0 THEN 'low_stock' ELSE 'out_of_stock' END WHERE id = ?`)
-        .bind(it.quantity, it.quantity, it.quantity, it.product_id).run()
-    }
-    // Return financial impact: courier return charge
-    if (status === 'returned' && order.courier_id) {
-      const courier = await db.prepare('SELECT return_charge FROM couriers WHERE id = ?').bind(order.courier_id).first<any>()
-      if (courier?.return_charge) {
-        await db.prepare('UPDATE orders SET courier_cost = courier_cost + ? WHERE id = ?').bind(courier.return_charge, id).run()
-      }
-    }
-  }
-
-  await recalcOrderProfit(db, id)
-  if (order.customer_id) await refreshCustomerStats(db, order.customer_id)
-  await auditLog(db, user.id, user.username, 'status_change', 'order', String(order.order_number), `${oldStatus} → ${status}${note ? ' | ' + note : ''}`)
-  await notify(db, 'status_change', 'অর্ডার স্ট্যাটাস পরিবর্তন', `${order.order_number}: ${oldStatus} → ${status} (${user.username})`, `/admin#/orders/${id}`)
-
-  // Delivery-confirmation SMS — only fires if admin has configured an SMS gateway.
-  if (status === 'delivered') {
-    const s = await getSettings(db, ['sms_on_delivered_enabled', 'sms_on_delivered_template', 'brand_name'])
-    if (s.sms_on_delivered_enabled !== '0') {
-      runBackground(c, sendSms(db, {
-        phone: order.phone,
-        orderId: id,
-        eventType: 'delivered',
-        message: fillSmsTemplate(s.sms_on_delivered_template || 'প্রিয় {name}, আপনার অর্ডার #{order_number} সফলভাবে ডেলিভারি সম্পন্ন হয়েছে। ধন্যবাদ — {brand}', {
-          name: order.customer_name, order_number: order.order_number, brand: s.brand_name || 'Nature Care Bangladesh'
-        })
-      }))
-    }
-  }
+  const result = await applyOrderStatusChange(db, order, status, user.username, note || '', c, user.id)
+  if (!result.ok) return c.json({ error: result.message || 'failed' }, 400)
 
   return c.json({ success: true, status })
 })

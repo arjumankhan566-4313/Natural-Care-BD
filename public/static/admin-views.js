@@ -505,6 +505,16 @@
       if (S.route !== 'orders' || String(S.param) !== String(orderId) || document.hidden) return;
       axios.get('/api/admin/orders/' + orderId).then(function (r) {
         var d = r.data, o = d.order;
+        var prevStatus = S._currentOrder ? S._currentOrder.status : null;
+        if (prevStatus && prevStatus !== o.status) {
+          // The courier sync engine auto-advanced the main order status too (e.g.
+          // confirmed → shipped/delivered) — re-render the whole detail view so the
+          // top badge, status dropdown, and timeline all reflect it, not just the
+          // courier card. No full page reload — this is still an in-place SPA render.
+          viewOrderDetail();
+          toast('অর্ডার স্ট্যাটাস স্বয়ংক্রিয়ভাবে আপডেট হয়েছে: ' + (STATUS_BN[o.status] || o.status));
+          return;
+        }
         var card = document.getElementById('courier-status-card');
         if (card) card.outerHTML = courierCardHtml(o, d.transfers);
         var hist = document.getElementById('courier-history-card');
@@ -531,7 +541,7 @@
           '<div class="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 z-10 text-[10px]"><i class="fas fa-check"></i></div>' +
           '<div class="min-w-0"><div class="text-sm font-semibold">' + (h.from_status && h.from_status !== h.to_status ? statusBadge(h.from_status) + ' → ' : '') + statusBadge(h.to_status) + '</div>' +
           (h.note ? '<div class="text-xs text-gray-500 mt-1">' + esc(h.note) + '</div>' : '') +
-          '<div class="text-[10px] text-gray-400 mt-0.5">' + fmtDT(h.created_at) + ' — ' + esc(h.changed_by) + '</div></div></div>';
+          '<div class="text-[10px] text-gray-400 mt-0.5">' + fmtDT(h.created_at) + ' — ' + (String(h.changed_by || '').indexOf('Steadfast') === 0 ? '<i class="fas fa-robot text-blue-400 mr-0.5"></i>' : '') + esc(h.changed_by) + '</div></div></div>';
       }).join('');
 
       setContent(
