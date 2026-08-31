@@ -218,7 +218,7 @@
       axios.get('/api/admin/poll?since_id=' + S.lastNotifId).then(function (r) {
         if (S.lastNotifId > 0) {
           (r.data.notifications || []).forEach(function (n) {
-            if (n.type === 'new_order' || n.type === 'courier_sent' || n.type === 'courier_error') toast(n.title + ' — ' + n.message);
+            if (n.type === 'new_order' || n.type === 'courier_sent' || n.type === 'courier_error' || n.type === 'courier_status_changed') toast(n.title + ' — ' + n.message);
           });
         }
         S.lastNotifId = r.data.max_id || S.lastNotifId;

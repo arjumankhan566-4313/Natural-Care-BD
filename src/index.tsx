@@ -10,6 +10,9 @@ import adminCustomers from './routes/admin-customers'
 import adminFinance from './routes/admin-finance'
 import adminSystem from './routes/admin-system'
 import adminIncomplete from './routes/admin-incomplete'
+import adminCourierSync from './routes/admin-courier-sync'
+import { runBackground } from './lib/helpers'
+import { maybeTriggerLazySync } from './lib/courier-sync'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -52,6 +55,17 @@ app.get('/assets/:key', async (c) => {
   }
 })
 
+// Steadfast Auto Status Sync — "lazy cron" trigger. Cloudflare Pages hosted-deploy does
+// not support wrangler `triggers` (real cron), so instead every admin API request cheaply
+// checks "has 5 minutes passed since the last global sync?" and, if so, kicks off a
+// background batch via runBackground() (executionCtx.waitUntil) without adding latency to
+// the request itself. Since the admin panel is polled every ~15s while anyone is logged
+// in, this behaves like a real 5-minute interval in practice.
+app.use('/api/admin/*', async (c, next) => {
+  await next()
+  runBackground(c, maybeTriggerLazySync(c.env.DB))
+})
+
 // ============ API ROUTES ============
 app.route('/api/public', pub)
 app.route('/api/auth', auth)
@@ -61,6 +75,7 @@ app.route('/api/admin/customers', adminCustomers)
 app.route('/api/admin', adminFinance)     // /ad-spends, /expenses, /analytics
 app.route('/api/admin', adminSystem)      // /settings, /users, /audit-logs, /notifications, /export, /poll
 app.route('/api/admin', adminIncomplete)  // /incomplete-orders, /pixel, /banners
+app.route('/api/admin/courier-sync', adminCourierSync) // /sync-now/:orderId, /dashboard-stats
 
 // ============ LANDING PAGE ============
 app.get('/', async (c) => {

@@ -109,6 +109,76 @@ export async function steadfastStatusByTracking(courier: any, trackingCode: stri
   }
 }
 
+// ---- Check delivery status by Steadfast consignment_id (preferred — most reliable) ----
+export async function steadfastStatusByCid(courier: any, consignmentId: string | number): Promise<{ ok: boolean; delivery_status?: string; message: string }> {
+  try {
+    const res = await fetch(`${baseUrl(courier)}/status_by_cid/${encodeURIComponent(String(consignmentId))}`, { headers: apiHeaders(courier) })
+    const data: any = await res.json().catch(() => null)
+    if (res.ok && data?.delivery_status) {
+      return { ok: true, delivery_status: String(data.delivery_status), message: 'OK' }
+    }
+    return { ok: false, message: data?.message || `HTTP ${res.status}` }
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'network error' }
+  }
+}
+
+// ---- Check delivery status by our own invoice (== order_number) ----
+export async function steadfastStatusByInvoice(courier: any, invoice: string): Promise<{ ok: boolean; delivery_status?: string; message: string }> {
+  try {
+    const res = await fetch(`${baseUrl(courier)}/status_by_invoice/${encodeURIComponent(invoice)}`, { headers: apiHeaders(courier) })
+    const data: any = await res.json().catch(() => null)
+    if (res.ok && data?.delivery_status) {
+      return { ok: true, delivery_status: String(data.delivery_status), message: 'OK' }
+    }
+    return { ok: false, message: data?.message || `HTTP ${res.status}` }
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'network error' }
+  }
+}
+
+// ---- Unified status check: tries consignment_id -> invoice -> tracking_code, in that
+// preference order, using whichever identifiers are actually available on the order. ----
+export async function steadfastCheckStatus(courier: any, ids: { consignmentId?: string; invoice?: string; trackingCode?: string }): Promise<{ ok: boolean; delivery_status?: string; message: string; usedField?: string }> {
+  if (ids.consignmentId) {
+    const r = await steadfastStatusByCid(courier, ids.consignmentId)
+    if (r.ok) return { ...r, usedField: 'consignment_id' }
+    // If cid lookup failed for a network/HTTP reason, still try the other identifiers
+    // before giving up — but don't loop forever, each identifier tried at most once.
+    if (ids.invoice) {
+      const r2 = await steadfastStatusByInvoice(courier, ids.invoice)
+      if (r2.ok) return { ...r2, usedField: 'invoice' }
+    }
+    if (ids.trackingCode) {
+      const r3 = await steadfastStatusByTracking(courier, ids.trackingCode)
+      if (r3.ok) return { ...r3, usedField: 'tracking_code' }
+    }
+    return r // return the original (cid) failure message as the primary error
+  }
+  if (ids.invoice) {
+    const r = await steadfastStatusByInvoice(courier, ids.invoice)
+    if (r.ok) return { ...r, usedField: 'invoice' }
+    if (ids.trackingCode) {
+      const r2 = await steadfastStatusByTracking(courier, ids.trackingCode)
+      if (r2.ok) return { ...r2, usedField: 'tracking_code' }
+    }
+    return r
+  }
+  if (ids.trackingCode) {
+    const r = await steadfastStatusByTracking(courier, ids.trackingCode)
+    return { ...r, usedField: r.ok ? 'tracking_code' : undefined }
+  }
+  return { ok: false, message: 'Missing Steadfast identifier (no consignment_id/invoice/tracking_code)' }
+}
+
+// Statuses that will never change again on Steadfast's side — once an order reaches one
+// of these, we stop polling it (saves API calls; matches spec section 4.2 "ignore closed").
+export const STEADFAST_TERMINAL_STATUSES = new Set(['delivered', 'partial_delivered', 'cancelled'])
+
+export function isSteadfastTerminal(status: string): boolean {
+  return STEADFAST_TERMINAL_STATUSES.has(String(status || ''))
+}
+
 // Bangla labels for Steadfast delivery statuses
 export const STEADFAST_STATUS_BN: Record<string, string> = {
   pending: 'পেন্ডিং (এখনো ডেলিভারি হয়নি)',

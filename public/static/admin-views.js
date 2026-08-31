@@ -134,11 +134,12 @@
       axios.get('/api/admin/analytics/summary?range=' + dashRange),
       axios.get('/api/admin/analytics/charts?range=' + (dashRange === 'today' || dashRange === 'yesterday' ? 'last7' : dashRange)),
       axios.get('/api/admin/orders?limit=8'),
-      axios.get('/api/admin/analytics/dashboard?range=' + dashRange)
+      axios.get('/api/admin/analytics/dashboard?range=' + dashRange),
+      axios.get('/api/admin/courier-sync/dashboard-stats').catch(function () { return { data: null }; })
     ]).then(function (rs) {
       if (S.route !== 'dashboard') return; // user navigated away mid-request
       destroyCharts();
-      var d = rs[0].data, ch = rs[1].data, ords = rs[2].data.orders, ent = rs[3].data;
+      var d = rs[0].data, ch = rs[1].data, ords = rs[2].data.orders, ent = rs[3].data, sync = rs[4].data;
       var live = ent.live, fn = ent.funnel, wc = ent.week_compare;
       cardIdx = 0;
 
@@ -286,6 +287,23 @@
           '</div>' +
         '</div>' +
 
+        // ===== STEADFAST AUTO SYNC WIDGET (real DB counts, never hardcoded) =====
+        (sync ? '<div class="card3d bg-white rounded-2xl p-5 shadow-sm kpi-card-in mb-5" style="animation-delay:.64s">' +
+          '<div class="flex justify-between items-center mb-4"><h3 class="font-bold"><i class="fas fa-satellite-dish text-emerald-600 mr-2"></i>Steadfast অটো সিঙ্ক</h3>' +
+            '<span class="text-xs text-gray-400"><i class="fas fa-circle-check text-emerald-500 mr-1"></i>সর্বশেষ গ্লোবাল সিঙ্ক: ' + (sync.last_global_sync ? fmtDT(sync.last_global_sync) : 'এখনো হয়নি') + '</span>' +
+          '</div>' +
+          '<div class="grid grid-cols-2 md:grid-cols-4 gap-3">' +
+            '<div class="bg-blue-50 rounded-xl p-3 text-center"><div class="text-xl font-bold text-blue-700">' + sync.active_orders + '</div><div class="text-[11px] text-gray-500">অ্যাক্টিভ কুরিয়ার অর্ডার</div></div>' +
+            '<div class="bg-emerald-50 rounded-xl p-3 text-center"><div class="text-xl font-bold text-emerald-700">' + sync.synced_ok + '</div><div class="text-[11px] text-gray-500">সফলভাবে সিঙ্কড</div></div>' +
+            '<div class="bg-red-50 rounded-xl p-3 text-center"><div class="text-xl font-bold text-red-600">' + sync.sync_errors + '</div><div class="text-[11px] text-gray-500">সিঙ্ক এরর</div></div>' +
+            '<div class="bg-gray-50 rounded-xl p-3 text-center"><div class="text-xl font-bold text-gray-700">' + (sync.last_run_stats ? sync.last_run_stats.checked : '—') + '</div><div class="text-[11px] text-gray-500">সর্বশেষ ব্যাচে চেক হয়েছে</div></div>' +
+          '</div>' +
+          (Object.keys(sync.status_counts || {}).length ? '<div class="flex flex-wrap gap-2 mt-3">' +
+            Object.keys(sync.status_counts).map(function (st) {
+              return '<span class="px-2 py-1 rounded-lg text-[11px] font-semibold ' + (COURIER_STATUS_COLOR[st] || 'bg-gray-100 text-gray-600') + '">' + (st || 'unsynced') + ': ' + sync.status_counts[st] + '</span>';
+            }).join('') + '</div>' : '') +
+        '</div>' : '') +
+
         // ===== RECENT ORDERS =====
         '<div class="bg-white rounded-2xl shadow-sm overflow-hidden kpi-card-in" style="animation-delay:.66s">' +
           '<div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center"><h3 class="font-bold"><i class="fas fa-clock-rotate-left text-emerald-600 mr-2"></i>সাম্প্রতিক অর্ডার</h3><a href="#/orders" class="text-sm text-emerald-600 font-semibold">সব দেখুন →</a></div>' +
@@ -417,6 +435,87 @@
     }).catch(apiErr);
   }
 
+  // ============ Steadfast courier status — shared render helpers (also used by poll) ============
+  var COURIER_STATUS_COLOR = {
+    pending: 'bg-amber-100 text-amber-700',
+    delivered_approval_pending: 'bg-emerald-100 text-emerald-700',
+    partial_delivered_approval_pending: 'bg-lime-100 text-lime-700',
+    cancelled_approval_pending: 'bg-red-100 text-red-700',
+    unknown_approval_pending: 'bg-gray-100 text-gray-600',
+    delivered: 'bg-green-100 text-green-800',
+    partial_delivered: 'bg-lime-100 text-lime-700',
+    cancelled: 'bg-red-100 text-red-700',
+    hold: 'bg-orange-100 text-orange-700',
+    in_review: 'bg-blue-100 text-blue-700',
+    unknown: 'bg-gray-100 text-gray-500'
+  };
+  function courierStatusBadge(o) {
+    if (!o.courier_status) return '';
+    var cls = COURIER_STATUS_COLOR[o.courier_status] || 'bg-gray-100 text-gray-600';
+    return '<span class="px-2 py-0.5 rounded-full text-xs font-bold ' + cls + '">' + esc(o.courier_status_label || o.courier_status) + '</span>';
+  }
+  function transfersHtml(transfers) {
+    return (transfers || []).length ? transfers.map(function (t) {
+      return '<div class="bg-gray-50 rounded-xl p-3 mb-2 text-sm">' +
+        '<div class="font-semibold">' + (t.from_courier_name ? esc(t.from_courier_name) + ' <i class="fas fa-arrow-right text-gray-400 mx-1"></i> ' : '<i class="fas fa-plus-circle text-emerald-500 mr-1"></i>') + esc(t.to_courier_name) + '</div>' +
+        '<div class="text-xs text-gray-500 mt-1">' + (t.tracking_id ? 'ট্র্যাকিং: ' + esc(t.tracking_id) + ' | ' : '') + 'চার্জ: ' + money(t.courier_charge) + (t.weight ? ' | ওজন: ' + t.weight + 'কেজি' : '') + (t.consignment_id ? ' | <span class="text-emerald-600 font-semibold">API ✅ ' + esc(t.consignment_id) + '</span>' : '') + (t.note ? ' | ' + esc(t.note) : '') + '</div>' +
+        '<div class="text-[10px] text-gray-400">' + fmtDT(t.created_at) + ' — ' + esc(t.transferred_by) + '</div></div>';
+    }).join('') : '<div class="text-sm text-gray-400 text-center py-3">কোনো কুরিয়ার ট্রান্সফার হয়নি</div>';
+  }
+  // Whole "কুরিয়ার" card — built once for first render, and rebuilt (outerHTML swap) on
+  // every courier-status poll tick so only THIS component updates, not the full page.
+  function courierCardHtml(o, transfers) {
+    var hasId = !!(o.consignment_id || o.tracking_id);
+    return '<div class="bg-white rounded-2xl p-5 shadow-sm" id="courier-status-card">' +
+      '<div class="flex justify-between items-center mb-3"><h3 class="font-bold"><i class="fas fa-truck text-emerald-600 mr-2"></i>কুরিয়ার</h3>' +
+        (hasId ? '<button id="sync-now-btn" onclick="AV.syncNow(' + o.id + ')" class="text-xs bg-blue-50 text-blue-700 px-2.5 py-1.5 rounded-lg font-semibold hover:bg-blue-100"><i class="fas fa-rotate mr-1"></i>Sync Now</button>' : '') +
+      '</div>' +
+      '<div class="text-sm space-y-1.5">' +
+        '<div><span class="text-gray-500">কুরিয়ার:</span> <span class="font-semibold">' + esc(o.courier_name || 'নির্ধারিত হয়নি') + '</span></div>' +
+        '<div><span class="text-gray-500">ট্র্যাকিং:</span> <span class="font-semibold">' + esc(o.tracking_id || '—') + '</span></div>' +
+        (o.consignment_id ? '<div><span class="text-gray-500">কনসাইনমেন্ট:</span> <span class="font-semibold text-emerald-700">' + esc(o.consignment_id) + '</span> <span class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold">API</span></div>' : '') +
+        (hasId ? '<div><span class="text-gray-500">স্ট্যাটাস:</span> ' + (courierStatusBadge(o) || '<span class="text-gray-400 text-xs">এখনো সিঙ্ক হয়নি</span>') + '</div>' : '') +
+        (hasId ? '<div class="flex items-center gap-1.5 text-[11px] text-gray-400"><i class="fas fa-circle-check text-emerald-500"></i>অটোমেটিক সিঙ্ক | সর্বশেষ: ' + (o.courier_last_synced_at ? fmtDT(o.courier_last_synced_at) : 'এখনো হয়নি') + '</div>' : '') +
+        (o.courier_sync_error ? '<div class="text-xs text-red-600 bg-red-50 rounded-lg p-2 mt-1"><i class="fas fa-triangle-exclamation mr-1"></i>' + esc(o.courier_sync_error) + '</div>' : '') +
+        (o.tracking_url ? '<a href="' + esc(o.tracking_url) + '" target="_blank" class="block text-center bg-blue-50 text-blue-700 rounded-lg py-2 font-semibold text-xs mt-2"><i class="fas fa-arrow-up-right-from-square mr-1"></i>ট্র্যাক করুন</a>' : '') +
+      '</div>' +
+      '<h4 class="font-semibold text-sm mt-4 mb-2 text-gray-600">ট্রান্সফার হিস্ট্রি</h4>' + transfersHtml(transfers) +
+    '</div>';
+  }
+  // Status History timeline — generated purely from real courier_status_logs rows (no
+  // manual entry possible). Returns '' when there's no history yet (card omitted).
+  function courierHistoryHtml(logs) {
+    if (!logs || !logs.length) return '';
+    var rows = logs.map(function (l) {
+      return '<div class="flex gap-3 pb-3 relative"><div class="absolute left-[11px] top-6 bottom-0 w-0.5 bg-gray-100"></div>' +
+        '<div class="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 z-10 text-[10px]"><i class="fas fa-truck-fast"></i></div>' +
+        '<div class="min-w-0"><div class="text-sm font-semibold">' + (l.old_status ? esc(l.old_status) + ' → ' : '') + esc(l.new_status) + '</div>' +
+        '<div class="text-[10px] text-gray-400 mt-0.5">' + fmtDT(l.synced_at) + ' — Steadfast API</div></div></div>';
+    }).join('');
+    return '<div class="bg-white rounded-2xl p-5 shadow-sm" id="courier-history-card"><h3 class="font-bold mb-3"><i class="fas fa-route text-blue-600 mr-2"></i>কুরিয়ার স্ট্যাটাস হিস্ট্রি</h3>' + rows + '</div>';
+  }
+  // Scoped poll: while an order-detail page is open, silently re-fetch just this order
+  // every 20s and swap only #courier-status-card / #courier-history-card — never a full
+  // page reload, and never lets the admin type/select a fake status.
+  var courierPollTimer = null;
+  function stopCourierPoll() { if (courierPollTimer) { clearInterval(courierPollTimer); courierPollTimer = null; } }
+  function startCourierPoll(orderId) {
+    stopCourierPoll();
+    courierPollTimer = setInterval(function () {
+      if (S.route !== 'orders' || String(S.param) !== String(orderId) || document.hidden) return;
+      axios.get('/api/admin/orders/' + orderId).then(function (r) {
+        var d = r.data, o = d.order;
+        var card = document.getElementById('courier-status-card');
+        if (card) card.outerHTML = courierCardHtml(o, d.transfers);
+        var hist = document.getElementById('courier-history-card');
+        var newHist = courierHistoryHtml(d.courierLogs);
+        if (hist) { if (newHist) hist.outerHTML = newHist; else hist.remove(); }
+        else if (newHist) { var anchor = document.getElementById('courier-status-card'); if (anchor) anchor.insertAdjacentHTML('afterend', newHist); }
+        S._currentOrder = o;
+      }).catch(function () {});
+    }, 20000);
+  }
+
   // ============ ORDER DETAIL ============
   function viewOrderDetail() {
     var id = S.param;
@@ -434,13 +533,6 @@
           (h.note ? '<div class="text-xs text-gray-500 mt-1">' + esc(h.note) + '</div>' : '') +
           '<div class="text-[10px] text-gray-400 mt-0.5">' + fmtDT(h.created_at) + ' — ' + esc(h.changed_by) + '</div></div></div>';
       }).join('');
-
-      var transfers = d.transfers.length ? d.transfers.map(function (t) {
-        return '<div class="bg-gray-50 rounded-xl p-3 mb-2 text-sm">' +
-          '<div class="font-semibold">' + (t.from_courier_name ? esc(t.from_courier_name) + ' <i class="fas fa-arrow-right text-gray-400 mx-1"></i> ' : '<i class="fas fa-plus-circle text-emerald-500 mr-1"></i>') + esc(t.to_courier_name) + '</div>' +
-          '<div class="text-xs text-gray-500 mt-1">' + (t.tracking_id ? 'ট্র্যাকিং: ' + esc(t.tracking_id) + ' | ' : '') + 'চার্জ: ' + money(t.courier_charge) + (t.weight ? ' | ওজন: ' + t.weight + 'কেজি' : '') + (t.consignment_id ? ' | <span class="text-emerald-600 font-semibold">API ✅ ' + esc(t.consignment_id) + '</span>' : '') + (t.note ? ' | ' + esc(t.note) : '') + '</div>' +
-          '<div class="text-[10px] text-gray-400">' + fmtDT(t.created_at) + ' — ' + esc(t.transferred_by) + '</div></div>';
-      }).join('') : '<div class="text-sm text-gray-400 text-center py-3">কোনো কুরিয়ার ট্রান্সফার হয়নি</div>';
 
       setContent(
         '<div class="flex items-center justify-between flex-wrap gap-3 mb-5">' +
@@ -498,15 +590,8 @@
           '</div>' +
           // Right column
           '<div class="space-y-5">' +
-            '<div class="bg-white rounded-2xl p-5 shadow-sm"><h3 class="font-bold mb-3"><i class="fas fa-truck text-emerald-600 mr-2"></i>কুরিয়ার</h3>' +
-              '<div class="text-sm space-y-1.5">' +
-                '<div><span class="text-gray-500">কুরিয়ার:</span> <span class="font-semibold">' + esc(o.courier_name || 'নির্ধারিত হয়নি') + '</span></div>' +
-                '<div><span class="text-gray-500">ট্র্যাকিং:</span> <span class="font-semibold">' + esc(o.tracking_id || '—') + '</span></div>' +
-                (o.consignment_id ? '<div><span class="text-gray-500">কনসাইনমেন্ট:</span> <span class="font-semibold text-emerald-700">' + esc(o.consignment_id) + '</span> <span class="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold">API</span></div>' : '') +
-                (o.tracking_url ? '<a href="' + esc(o.tracking_url) + '" target="_blank" class="block text-center bg-blue-50 text-blue-700 rounded-lg py-2 font-semibold text-xs mt-2"><i class="fas fa-arrow-up-right-from-square mr-1"></i>ট্র্যাক করুন</a>' : '') +
-              '</div>' +
-              '<h4 class="font-semibold text-sm mt-4 mb-2 text-gray-600">ট্রান্সফার হিস্ট্রি</h4>' + transfers +
-            '</div>' +
+            courierCardHtml(o, d.transfers) +
+            courierHistoryHtml(d.courierLogs) +
             '<div class="bg-white rounded-2xl p-5 shadow-sm"><h3 class="font-bold mb-3"><i class="fas fa-clock-rotate-left text-emerald-600 mr-2"></i>টাইমলাইন</h3>' + timeline + '</div>' +
             '<div class="bg-white rounded-2xl p-5 shadow-sm"><h3 class="font-bold mb-3"><i class="fas fa-note-sticky text-emerald-600 mr-2"></i>অ্যাডমিন নোট</h3>' +
               '<textarea id="admin-notes" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">' + esc(o.admin_notes || '') + '</textarea>' +
@@ -519,6 +604,11 @@
       // stash couriers for transfer modal
       S._couriers = couriers;
       S._currentOrder = o;
+      // Live courier-status polling — only while this exact order-detail view is open,
+      // and only swaps #courier-status-card / #courier-history-card (spec: "update only
+      // the affected component, not the whole page").
+      if (o.consignment_id || o.tracking_id) startCourierPoll(o.id);
+      else stopCourierPoll();
     }).catch(apiErr);
   }
 
@@ -533,6 +623,21 @@
       viewOrders();
     },
     oPage: function (p) { oFilter.page = p; viewOrders(); },
+
+    // Manual "🔄 Sync Now" — asks Steadfast for the latest status right now. Never lets
+    // the admin type/pick a status themselves; the value always comes from the courier API.
+    syncNow: function (id) {
+      var btn = document.getElementById('sync-now-btn');
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>সিঙ্ক হচ্ছে...'; }
+      axios.post('/api/admin/courier-sync/sync-now/' + id).then(function (r) {
+        if (r.data.changed) toast('স্ট্যাটাস আপডেট হয়েছে: ' + (r.data.courier_status_label || r.data.courier_status));
+        else toast('সিঙ্ক সম্পন্ন — স্ট্যাটাস অপরিবর্তিত আছে');
+        if (S.route === 'orders' && String(S.param) === String(id)) viewOrderDetail();
+      }).catch(function (e) {
+        apiErr(e);
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-rotate mr-1"></i>Sync Now'; }
+      });
+    },
 
     changeStatus: function (id) {
       var ns = v('new-status');
@@ -675,10 +780,11 @@
     }
   };
 
-  // Stop the dashboard auto-refresh timer when the user navigates away
+  // Stop the dashboard auto-refresh / courier-status poll timers when the user navigates away
   window.addEventListener('hashchange', function () {
     var route = location.hash.replace(/^#\//, '').split('/')[0] || 'dashboard';
     if (route !== 'dashboard') stopDashAutoRefresh();
+    if (route !== 'orders') stopCourierPoll();
   });
 
   // register part-1 views now; part 3 adds the rest

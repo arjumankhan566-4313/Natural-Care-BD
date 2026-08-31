@@ -67,10 +67,11 @@ r.get('/:id', async (c) => {
   `).bind(id).first<any>()
   if (!order) return c.json({ error: 'not_found' }, 404)
 
-  const [items, history, transfers] = await Promise.all([
+  const [items, history, transfers, courierLogs] = await Promise.all([
     db.prepare('SELECT * FROM order_items WHERE order_id = ?').bind(id).all(),
     db.prepare('SELECT * FROM order_status_history WHERE order_id = ? ORDER BY id').bind(id).all(),
-    db.prepare('SELECT * FROM courier_transfers WHERE order_id = ? ORDER BY id').bind(id).all()
+    db.prepare('SELECT * FROM courier_transfers WHERE order_id = ? ORDER BY id').bind(id).all(),
+    db.prepare('SELECT * FROM courier_status_logs WHERE order_id = ? ORDER BY id DESC').bind(id).all()
   ])
 
   order.risk_reasons = JSON.parse(order.risk_reasons || '[]')
@@ -85,7 +86,7 @@ r.get('/:id', async (c) => {
     roi: totalCost > 0 ? Math.round((order.net_profit / totalCost) * 1000) / 10 : 0
   }
 
-  return c.json({ order, items: items.results || [], history: history.results || [], transfers: transfers.results || [], financial })
+  return c.json({ order, items: items.results || [], history: history.results || [], transfers: transfers.results || [], courierLogs: courierLogs.results || [], financial })
 })
 
 // Update order status
