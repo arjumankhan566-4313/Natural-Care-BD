@@ -12,7 +12,21 @@
 - **Landing Page**: `/`
 - **Order Tracking**: `/track-order`
 - **Admin Panel**: `/admin` — লগইন: `arjumankhan566@gmail.com` (পাসওয়ার্ড admin panel মালিকের কাছে)
-- **Deployment**: ✅ Cloudflare Pages (project: `natural-care-bd`, D1: `natural-care-bd-production`) — Last deployed: 2026-08-30 (Enterprise Dashboard 2.0)
+- **Deployment**: ✅ Cloudflare Pages (project: `natural-care-bd`, D1: `natural-care-bd-production`) — Last deployed: 2026-08-31 (Steadfast Auto Status Sync)
+
+### Steadfast Auto Status Sync (2026-08-31) 🆕
+- ✅ **স্বয়ংক্রিয় কুরিয়ার স্ট্যাটাস সিঙ্ক**: Steadfast-এ ট্রান্সফার হওয়া প্রতিটি অর্ডারের ডেলিভারি স্ট্যাটাস (pending/delivered/cancelled/hold ইত্যাদি — Steadfast-এর ১১টি অফিসিয়াল স্ট্যাটাসের একটি) এখন প্রতি ৫ মিনিটে অটোমেটিক চেক হয় এবং পরিবর্তন হলে সাথে সাথে আমাদের DB-তে আপডেট হয় — **admin থেকে ম্যানুয়ালি কিছু পরিবর্তন করা লাগে না**।
+- ⚙️ **টেকনিক্যাল নোট**: Cloudflare Pages hosted-deploy-এ real cron (`triggers`) সাপোর্ট নেই, তাই একটি "lazy catch-up sync" প্যাটার্ন ব্যবহার করা হয়েছে — প্রতিটি admin API রিকোয়েস্ট চেক করে শেষ গ্লোবাল সিঙ্ক কতক্ষণ আগে হয়েছে, ৫ মিনিট পার হয়ে গেলে ব্যাকগ্রাউন্ডে (`waitUntil`) একটি ব্যাচ সিঙ্ক ট্রিগার হয় — অ্যাডমিন প্যানেল লগইন থাকা অবস্থায় ব্যবহারিকভাবে এটি রিয়েল ৫-মিনিট ইন্টারভালের মতোই কাজ করে।
+- ✅ Steadfast API লুকআপ প্রায়োরিটি: `consignment_id` → `invoice` → `tracking_code` (fallback chain সহ)।
+- ✅ অর্ডার-ডিটেইল পেজে (কুরিয়ার কার্ড): লাইভ স্ট্যাটাস ব্যাজ, শেষ সিঙ্ক টাইম, "✓ Automatic" ইঙ্গিত, **"🔄 Sync Now"** ম্যানুয়াল রিফ্রেশ বাটন (admin কখনো স্ট্যাটাস টাইপ/সিলেক্ট করতে পারবে না — মান সবসময় Steadfast API থেকেই আসে), এবং **কুরিয়ার স্ট্যাটাস হিস্ট্রি টাইমলাইন** (`courier_status_logs` থেকে অটোমেটিক জেনারেটেড)।
+- ✅ অর্ডার-ডিটেইল ভিউ খোলা থাকলে প্রতি ২০ সেকেন্ডে সাইলেন্ট পোল হয় — শুধু কুরিয়ার কার্ড/হিস্ট্রি অংশ আপডেট হয়, পুরো পেজ রিলোড হয় না।
+- ✅ ড্যাশবোর্ডে নতুন **"Steadfast অটো সিঙ্ক"** উইজেট: Active Courier Orders / Synced Successfully / Sync Errors / Last Global Sync + স্ট্যাটাস ব্রেকডাউন — সব real DB count থেকে, hardcoded না।
+- ✅ এরর হ্যান্ডলিং: API ফেইল হলে বিদ্যমান valid স্ট্যাটাস কখনো overwrite হয় না; error message + attempt counter সংরক্ষিত হয়; পরের সাইকেলে আবার রিট্রাই হয়।
+- ✅ দুই সিঙ্ক ব্যাচ একসাথে চলা প্রতিরোধে single-row DB lock (`courier_sync_lock`, ২ মিনিট stale-timeout)।
+- ✅ বিদ্যমান "Transfer to Steadfast" ফ্লো, `consignment_id`/`tracking_id` ফিল্ড, Steadfast auth/config — সবকিছু অপরিবর্তিত/পুনঃব্যবহৃত, নতুন করে ডুপ্লিকেট ইন্টিগ্রেশন তৈরি হয়নি।
+- **নতুন DB ফিল্ড/টেবিল** (`migrations/0008_courier_auto_sync.sql`, প্রোডাকশনে অ্যাপ্লাই করা হয়েছে): `orders.courier_status`, `courier_status_label`, `courier_last_synced_at`, `courier_sync_error`, `courier_sync_attempts`; নতুন টেবিল `courier_status_logs`, `courier_sync_lock`।
+- **নতুন API**: `POST /api/admin/courier-sync/sync-now/:orderId`, `GET /api/admin/courier-sync/dashboard-stats`; `GET /api/admin/orders/:id` রেসপন্সে এখন `courierLogs` অ্যারে যুক্ত।
+- ⚠️ **এখনো বাকি**: production-এ এখনো কোনো অর্ডারের real Steadfast consignment নেই (কোনো real transfer হয়নি) — তাই real Steadfast API response-এর বিপরীতে end-to-end যাচাই এখনো বাকি; একটি real "Transfer to Steadfast" করার পর status history/auto-sync স্বাভাবিকভাবেই populate হওয়া শুরু করবে।
 
 ### Enterprise Dashboard 2.0 + Pixel Accuracy Update (2026-08-30)
 - ✅ **জিরো-ডেটা বাগ ফিক্স (BD টাইমজোন)**: ড্যাশবোর্ডের "আজ" আগে UTC-তে হিসাব হতো — বাংলাদেশ সময় রাত ১২টার পর থেকে ভোর ৬টা পর্যন্ত সব KPI শূন্য দেখাত এবং সন্ধ্যার অর্ডার ভুল দিনে পড়তো। এখন সব analytics query `date(created_at, '+6 hours')` (Asia/Dhaka) ব্যবহার করে।
