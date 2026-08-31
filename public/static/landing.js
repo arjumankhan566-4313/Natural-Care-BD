@@ -567,10 +567,10 @@
               '<div class="sm:col-span-2"><label class="block text-sm font-semibold text-gray-700 mb-1.5">সম্পূর্ণ ঠিকানা *</label>' +
               '<textarea name="address" id="f-address" required rows="2" oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার সম্পূর্ণ ঠিকানা লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="বাসা/হোল্ডিং নম্বর, রোড, এলাকা"></textarea></div>' +
               '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">জেলা *</label>' +
-              '<select name="district" id="f-district" required oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার জেলা নির্বাচন করুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3 bg-white" onchange="NCB.updateTotal()">' +
-                '<option value="">জেলা নির্বাচন করুন</option>' +
-                DISTRICTS.map(function (dd) { return '<option value="' + dd + '">' + dd + '</option>'; }).join('') +
-              '</select></div>' +
+              '<input type="text" name="district" id="f-district" required list="district-list" autocomplete="off" oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার জেলা লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="জেলার নাম লিখুন" onkeyup="NCB.updateTotal()" onchange="NCB.updateTotal()">' +
+              '<datalist id="district-list">' +
+                DISTRICTS.map(function (dd) { return '<option value="' + dd + '">'; }).join('') +
+              '</datalist></div>' +
               '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">উপজেলা/থানা *</label>' +
               '<input type="text" name="upazila" id="f-upazila" required oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার উপজেলা/থানা লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="উপজেলা/থানা লিখুন"></div>' +
               '<div class="sm:col-span-2"><label class="block text-sm font-semibold text-gray-700 mb-1.5">অর্ডার নোট (ঐচ্ছিক)</label>' +
@@ -715,7 +715,7 @@
       else subtotal = p.sale_price;
     } else subtotal = p.sale_price;
     var district = (document.getElementById('f-district') || {}).value || '';
-    var isDhaka = district === 'ঢাকা';
+    var isDhaka = /ঢাকা|dhaka/i.test(district.trim());
     var delivery = freeDel ? 0 : (isDhaka ? Number(s.delivery_charge_dhaka || 70) : Number(s.delivery_charge_outside || 130));
     if (s.free_delivery_enabled === '1' && subtotal >= Number(s.free_delivery_min || 999999)) delivery = 0;
     return { subtotal: subtotal, delivery: delivery, total: subtotal + delivery };

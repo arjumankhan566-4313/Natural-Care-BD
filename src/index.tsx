@@ -17,7 +17,7 @@ import { maybeTriggerLazySync } from './lib/courier-sync'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Cache-busting version for static JS/CSS — bump on every deploy of frontend assets
-const ASSET_V = '19'
+const ASSET_V = '20'
 
 // CORS for API routes
 app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }))
