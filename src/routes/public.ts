@@ -4,7 +4,7 @@ import type { Bindings } from '../lib/helpers'
 import {
   getSettings, getSetting, generateOrderNumber, generateToken, validBDPhone, normalizePhone,
   recalcOrderProfit, refreshCustomerStats, notify, forwardToCapi, runBackground, STATUS_LABELS_BN,
-  sendSms, fillSmsTemplate
+  sendSms, fillSmsTemplate, validCustomerName, validAddress, validUpazila, resolveDistrict
 } from '../lib/helpers'
 import { calculateRisk } from '../lib/risk'
 import { rateLimit } from '../lib/auth'
@@ -151,20 +151,28 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
   const phone = normalizePhone(body.phone || '')
   const altPhone = body.alt_phone ? normalizePhone(body.alt_phone) : ''
   const address = (body.address || '').trim()
-  const district = (body.district || '').trim()
+  const rawDistrict = (body.district || '').trim()
+  const district = resolveDistrict(rawDistrict) // canonical name, '' if not a real district
   const upazila = (body.upazila || '').trim()
   const area = (body.area || '').trim()
   const note = (body.order_note || '').trim().slice(0, 500)
   const items: any[] = Array.isArray(body.items) ? body.items : []
   const otpVerified = !!body.otp_verified
 
-  // Validation
+  // Validation — every field is checked with the SAME rules the browser enforces
+  // (see public/static/landing.js), but re-verified here server-side since a
+  // customer/bot can tamper with or bypass the client-side JS entirely. Real,
+  // correctly-formatted name/phone/address/district/upazila are all mandatory;
+  // garbage input (too short, random characters, repeated letters, a district
+  // name that doesn't exist) is rejected with a specific message per field.
   const errors: string[] = []
-  if (name.length < 2) errors.push('নাম দিন (কমপক্ষে ২ অক্ষর)')
+  if (!validCustomerName(name)) errors.push('আপনার সম্পূর্ণ নাম সঠিকভাবে লিখুন (প্রথম নাম ও শেষ নাম, শুধু অক্ষর)')
   if (!validBDPhone(phone)) errors.push('সঠিক বাংলাদেশি মোবাইল নম্বর দিন (01XXXXXXXXX)')
   if (altPhone && !validBDPhone(altPhone)) errors.push('বিকল্প মোবাইল নম্বরটি সঠিক নয়')
-  if (address.length < 10) errors.push('সম্পূর্ণ ঠিকানা দিন (কমপক্ষে ১০ অক্ষর)')
-  if (!district) errors.push('জেলা নির্বাচন করুন')
+  if (!validAddress(address)) errors.push('সম্পূর্ণ সঠিক ঠিকানা দিন (বাসা/হোল্ডিং নম্বর, রোড, এলাকা সহ, কমপক্ষে ১৫ অক্ষর)')
+  if (!rawDistrict) errors.push('আপনার জেলা লিখুন')
+  else if (!district) errors.push('সঠিক জেলার নাম লিখুন (তালিকার একটি বৈধ জেলা হতে হবে)')
+  if (!validUpazila(upazila)) errors.push('সঠিক উপজেলা/থানার নাম লিখুন')
   if (!items.length) errors.push('কমপক্ষে একটি পণ্য নির্বাচন করুন')
   for (const it of items) {
     if (!it.product_id || !Number.isInteger(Number(it.quantity)) || Number(it.quantity) < 1 || Number(it.quantity) > 50) {

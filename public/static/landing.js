@@ -4,6 +4,112 @@
 
   var DISTRICTS = ['ঢাকা','গাজীপুর','নারায়ণগঞ্জ','মুন্সিগঞ্জ','মানিকগঞ্জ','নরসিংদী','টাঙ্গাইল','কিশোরগঞ্জ','ফরিদপুর','গোপালগঞ্জ','মাদারীপুর','রাজবাড়ী','শরীয়তপুর','চট্টগ্রাম','কক্সবাজার','কুমিল্লা','ব্রাহ্মণবাড়িয়া','চাঁদপুর','লক্ষ্মীপুর','নোয়াখালী','ফেনী','খাগড়াছড়ি','রাঙ্গামাটি','বান্দরবান','রাজশাহী','বগুড়া','পাবনা','সিরাজগঞ্জ','নওগাঁ','নাটোর','জয়পুরহাট','চাঁপাইনবাবগঞ্জ','খুলনা','যশোর','সাতক্ষীরা','বাগেরহাট','ঝিনাইদহ','মাগুরা','নড়াইল','কুষ্টিয়া','চুয়াডাঙ্গা','মেহেরপুর','বরিশাল','পটুয়াখালী','ভোলা','পিরোজপুর','বরগুনা','ঝালকাঠি','সিলেট','মৌলভীবাজার','হবিগঞ্জ','সুনামগঞ্জ','রংপুর','দিনাজপুর','গাইবান্ধা','কুড়িগ্রাম','লালমনিরহাট','নীলফামারী','পঞ্চগড়','ঠাকুরগাঁও','ময়মনসিংহ','জামালপুর','নেত্রকোণা','শেরপুর'];
 
+  // ============ ORDER FORM VALIDATION (client-side mirror of src/lib/helpers.ts) ============
+  // These rules give the customer INSTANT feedback (red inline error under each field,
+  // submit blocked) — but the server (src/routes/public.ts) re-checks every single one
+  // of these exact same rules independently, since this client JS can always be bypassed.
+  var NAME_CHARS_RE = /^[\u0980-\u09FFa-zA-Z\s.'-]+$/;
+  var REPEATED_CHAR_RE = /(.)\1{3,}/;
+  var ENGLISH_DISTRICT_ALIASES = {
+    dhaka: 'ঢাকা', chittagong: 'চট্টগ্রাম', chattogram: 'চট্টগ্রাম', khulna: 'খুলনা', rajshahi: 'রাজশাহী',
+    sylhet: 'সিলেট', barisal: 'বরিশাল', barishal: 'বরিশাল', rangpur: 'রংপুর', mymensingh: 'ময়মনসিংহ',
+    comilla: 'কুমিল্লা', cumilla: 'কুমিল্লা', coxsbazar: 'কক্সবাজার', jessore: 'যশোর', jashore: 'যশোর'
+  };
+  function resolveDistrict(input) {
+    var norm = (input || '').trim().toLowerCase().replace(/\s+/g, '');
+    if (!norm) return '';
+    if (ENGLISH_DISTRICT_ALIASES[norm]) return ENGLISH_DISTRICT_ALIASES[norm];
+    for (var i = 0; i < DISTRICTS.length; i++) {
+      if (DISTRICTS[i].trim().toLowerCase().replace(/\s+/g, '') === norm) return DISTRICTS[i];
+    }
+    return '';
+  }
+  function countDistinctChars(v) {
+    return Object.keys((v || '').replace(/\s/g, '').toLowerCase().split('').reduce(function (acc, ch) { acc[ch] = 1; return acc; }, {})).length;
+  }
+  function validCustomerName(name) {
+    var v = (name || '').trim();
+    if (v.length < 3 || v.length > 100) return 'আপনার সম্পূর্ণ নাম লিখুন (কমপক্ষে ৩ অক্ষর)';
+    if (!NAME_CHARS_RE.test(v)) return 'নামে শুধু অক্ষর ব্যবহার করুন (সংখ্যা/চিহ্ন দেওয়া যাবে না)';
+    if (REPEATED_CHAR_RE.test(v)) return 'সঠিক নাম লিখুন';
+    var words = v.split(/\s+/).filter(function (w) { return w.replace(/[.'-]/g, '').length > 0; });
+    if (words.length < 2) return 'অনুগ্রহ করে প্রথম নাম ও শেষ নাম দুটোই লিখুন';
+    return '';
+  }
+  function validAddress(address) {
+    var v = (address || '').trim();
+    if (v.length < 15 || v.length > 500) return 'সম্পূর্ণ ঠিকানা লিখুন (কমপক্ষে ১৫ অক্ষর)';
+    if (REPEATED_CHAR_RE.test(v)) return 'সঠিক ঠিকানা লিখুন';
+    var hasDigit = /\d/.test(v);
+    var wordCount = v.split(/\s+/).filter(Boolean).length;
+    if (!hasDigit && wordCount < 3) return 'বাসা/হোল্ডিং নম্বর, রোড, এলাকা সহ সম্পূর্ণ ঠিকানা লিখুন';
+    if (countDistinctChars(v) < 5) return 'সঠিক ঠিকানা লিখুন';
+    return '';
+  }
+  function validDistrictField(district) {
+    var v = (district || '').trim();
+    if (!v) return 'আপনার জেলা লিখুন';
+    if (!resolveDistrict(v)) return 'সঠিক জেলার নাম লিখুন (তালিকা থেকে নির্বাচন করুন)';
+    return '';
+  }
+  function validUpazilaField(upazila) {
+    var v = (upazila || '').trim();
+    if (v.length < 2 || v.length > 100) return 'আপনার উপজেলা/থানার নাম লিখুন';
+    if (!NAME_CHARS_RE.test(v)) return 'উপজেলা/থানায় শুধু অক্ষর ব্যবহার করুন';
+    if (REPEATED_CHAR_RE.test(v)) return 'সঠিক উপজেলা/থানার নাম লিখুন';
+    if (countDistinctChars(v) < 2) return 'সঠিক উপজেলা/থানার নাম লিখুন';
+    return '';
+  }
+  // field-id -> validator map, used both for live inline feedback and the final submit gate
+  var FIELD_VALIDATORS = {
+    'f-name': validCustomerName,
+    'f-address': validAddress,
+    'f-district': validDistrictField,
+    'f-upazila': validUpazilaField
+  };
+  function showFieldError(id, msg) {
+    var input = document.getElementById(id);
+    var errBox = document.getElementById(id + '-err');
+    if (!input || !errBox) return;
+    if (msg) {
+      errBox.textContent = msg;
+      errBox.classList.remove('hidden');
+      input.classList.add('border-red-500', 'ring-1', 'ring-red-500');
+    } else {
+      errBox.textContent = '';
+      errBox.classList.add('hidden');
+      input.classList.remove('border-red-500', 'ring-1', 'ring-red-500');
+    }
+  }
+  function validateField(id) {
+    var fn = FIELD_VALIDATORS[id];
+    if (!fn) return true;
+    var input = document.getElementById(id);
+    if (!input) return true;
+    var msg = fn(input.value);
+    showFieldError(id, msg);
+    return !msg;
+  }
+  // Validates every mandatory field, showing inline errors on all of them at once
+  // (not just the first) so the customer can fix everything in one pass.
+  function validateOrderForm() {
+    var ok = true;
+    Object.keys(FIELD_VALIDATORS).forEach(function (id) {
+      if (!validateField(id)) ok = false;
+    });
+    return ok;
+  }
+  function initFieldValidation() {
+    Object.keys(FIELD_VALIDATORS).forEach(function (id) {
+      var input = document.getElementById(id);
+      if (!input) return;
+      var handler = function () { validateField(id); };
+      input.addEventListener('input', handler);
+      input.addEventListener('blur', handler);
+      input.addEventListener('change', handler);
+    });
+  }
+
   var state = { data: null, cart: {}, utm: {}, submitting: false };
 
   // ---- Checkout session id (for incomplete-order capture) ----
@@ -353,6 +459,7 @@
     initStickyCta();
     initBannerSlider();
     initAutosave();
+    initFieldValidation();
     if (product) selectPackage(product.packages.length ? product.packages[0].id : 0);
     track('PageView', {});
     if (product) track('ViewContent', { content_name: product.name, content_ids: [String(product.id)], content_type: 'product', value: product.sale_price, currency: 'BDT' });
@@ -559,20 +666,25 @@
           '<form id="order-form" onsubmit="NCB.submitOrder(event)">' +
             '<div class="grid sm:grid-cols-2 gap-4 mb-4">' +
               '<div class="sm:col-span-2"><label class="block text-sm font-semibold text-gray-700 mb-1.5">আপনার নাম *</label>' +
-              '<input type="text" name="customer_name" id="f-name" required autocomplete="name" oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার নাম লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="সম্পূর্ণ নাম লিখুন"></div>' +
+              '<input type="text" name="customer_name" id="f-name" required autocomplete="name" oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার পূর্ণ নাম লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="সম্পূর্ণ নাম লিখুন (যেমন: করিম উদ্দিন)">' +
+              '<p id="f-name-err" class="hidden text-xs text-red-600 mt-1"></p></div>' +
               '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">মোবাইল নম্বর *</label>' +
-              '<input type="tel" name="phone" id="f-phone" required autocomplete="tel" oninvalid="this.setCustomValidity(\'অনুগ্রহ করে সঠিক মোবাইল নম্বর দিন (01XXXXXXXXX)\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="01XXXXXXXXX" maxlength="14"></div>' +
+              '<input type="tel" name="phone" id="f-phone" required autocomplete="tel" oninvalid="this.setCustomValidity(\'অনুগ্রহ করে সঠিক মোবাইল নম্বর দিন (01XXXXXXXXX)\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="01XXXXXXXXX" maxlength="14">' +
+              '<p id="f-phone-err" class="hidden text-xs text-red-600 mt-1"></p></div>' +
               '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">বিকল্প মোবাইল (ঐচ্ছিক)</label>' +
               '<input type="tel" name="alt_phone" id="f-alt-phone" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="01XXXXXXXXX" maxlength="14"></div>' +
               '<div class="sm:col-span-2"><label class="block text-sm font-semibold text-gray-700 mb-1.5">সম্পূর্ণ ঠিকানা *</label>' +
-              '<textarea name="address" id="f-address" required rows="2" oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার সম্পূর্ণ ঠিকানা লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="বাসা/হোল্ডিং নম্বর, রোড, এলাকা"></textarea></div>' +
+              '<textarea name="address" id="f-address" required rows="2" oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার সম্পূর্ণ ঠিকানা লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="বাসা/হোল্ডিং নম্বর, রোড, এলাকা"></textarea>' +
+              '<p id="f-address-err" class="hidden text-xs text-red-600 mt-1"></p></div>' +
               '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">জেলা *</label>' +
               '<input type="text" name="district" id="f-district" required list="district-list" autocomplete="off" oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার জেলা লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="জেলার নাম লিখুন" onkeyup="NCB.updateTotal()" onchange="NCB.updateTotal()">' +
               '<datalist id="district-list">' +
                 DISTRICTS.map(function (dd) { return '<option value="' + dd + '">'; }).join('') +
-              '</datalist></div>' +
+              '</datalist>' +
+              '<p id="f-district-err" class="hidden text-xs text-red-600 mt-1"></p></div>' +
               '<div><label class="block text-sm font-semibold text-gray-700 mb-1.5">উপজেলা/থানা *</label>' +
-              '<input type="text" name="upazila" id="f-upazila" required oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার উপজেলা/থানা লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="উপজেলা/থানা লিখুন"></div>' +
+              '<input type="text" name="upazila" id="f-upazila" required oninvalid="this.setCustomValidity(\'অনুগ্রহ করে আপনার উপজেলা/থানা লিখুন\')" oninput="this.setCustomValidity(\'\')" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="উপজেলা/থানা লিখুন">' +
+              '<p id="f-upazila-err" class="hidden text-xs text-red-600 mt-1"></p></div>' +
               '<div class="sm:col-span-2"><label class="block text-sm font-semibold text-gray-700 mb-1.5">অর্ডার নোট (ঐচ্ছিক)</label>' +
               '<input type="text" name="order_note" id="f-note" class="w-full border border-gray-300 rounded-lg px-4 py-3" placeholder="বিশেষ কোনো নির্দেশনা থাকলে লিখুন"></div>' +
             '</div>' +
@@ -765,10 +877,22 @@
     errEl.classList.add('hidden');
 
     var phone = document.getElementById('f-phone').value.replace(/[\s-]/g, '');
-    if (!/^01[3-9]\d{8}$/.test(phone.replace(/^\+?880?/, '0'))) {
-      errEl.textContent = 'সঠিক বাংলাদেশি মোবাইল নম্বর দিন (01XXXXXXXXX)';
+    var phoneValid = /^01[3-9]\d{8}$/.test(phone.replace(/^\+?880?/, '0'));
+    showFieldError('f-phone', phoneValid ? '' : 'সঠিক বাংলাদেশি মোবাইল নম্বর দিন (01XXXXXXXXX)');
+
+    // Hard gate: নাম, ঠিকানা, জেলা, উপজেলা/থানা — প্রতিটি ফিল্ড সঠিকভাবে পূরণ না হলে
+    // (ভুলভাল/অর্থহীন টেক্সট দিলে) অর্ডার সাবমিট হবে না — প্রতিটি ফিল্ডের নিচে
+    // নির্দিষ্ট এরর মেসেজ দেখানো হবে এবং প্রথম ভুল ফিল্ডে স্ক্রল করা হবে।
+    var formValid = validateOrderForm();
+    if (!phoneValid || !formValid) {
+      errEl.textContent = 'অনুগ্রহ করে ফর্মের চিহ্নিত ভুলগুলো ঠিক করুন';
       errEl.classList.remove('hidden');
-      errEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      var firstBadId = !phoneValid ? 'f-phone' : Object.keys(FIELD_VALIDATORS).find(function (id) {
+        var errBox = document.getElementById(id + '-err');
+        return errBox && !errBox.classList.contains('hidden');
+      });
+      var scrollTarget = (firstBadId && document.getElementById(firstBadId)) || errEl;
+      scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
 

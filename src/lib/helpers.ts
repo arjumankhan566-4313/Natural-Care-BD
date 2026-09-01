@@ -35,6 +35,92 @@ export function normalizePhone(phone: string): string {
   return p
 }
 
+// ============ Order form field validation (shared source of truth) ============
+// Mirrored in public/static/landing.js (client-side, for instant feedback) — but the
+// server here is the REAL gate: a customer/bot can bypass or tamper with the browser
+// JS, so nothing is trusted unless it also passes these exact same rules server-side.
+
+// The 64 official districts of Bangladesh — kept in sync with the `DISTRICTS` array in
+// public/static/landing.js (used there for the <datalist> autocomplete). The landing
+// page's district field is free-text (no forced dropdown selection), but the value
+// typed must still match one of these 64 real district names — random/garbage text
+// must be rejected.
+export const BD_DISTRICTS: string[] = [
+  'ঢাকা', 'গাজীপুর', 'নারায়ণগঞ্জ', 'মুন্সিগঞ্জ', 'মানিকগঞ্জ', 'নরসিংদী', 'টাঙ্গাইল', 'কিশোরগঞ্জ', 'ফরিদপুর', 'গোপালগঞ্জ',
+  'মাদারীপুর', 'রাজবাড়ী', 'শরীয়তপুর', 'চট্টগ্রাম', 'কক্সবাজার', 'কুমিল্লা', 'ব্রাহ্মণবাড়িয়া', 'চাঁদপুর', 'লক্ষ্মীপুর', 'নোয়াখালী',
+  'ফেনী', 'খাগড়াছড়ি', 'রাঙ্গামাটি', 'বান্দরবান', 'রাজশাহী', 'বগুড়া', 'পাবনা', 'সিরাজগঞ্জ', 'নওগাঁ', 'নাটোর',
+  'জয়পুরহাট', 'চাঁপাইনবাবগঞ্জ', 'খুলনা', 'যশোর', 'সাতক্ষীরা', 'বাগেরহাট', 'ঝিনাইদহ', 'মাগুরা', 'নড়াইল', 'কুষ্টিয়া',
+  'চুয়াডাঙ্গা', 'মেহেরপুর', 'বরিশাল', 'পটুয়াখালী', 'ভোলা', 'পিরোজপুর', 'বরগুনা', 'ঝালকাঠি', 'সিলেট', 'মৌলভীবাজার',
+  'হবিগঞ্জ', 'সুনামগঞ্জ', 'রংপুর', 'দিনাজপুর', 'গাইবান্ধা', 'কুড়িগ্রাম', 'লালমনিরহাট', 'নীলফামারী', 'পঞ্চগড়', 'ঠাকুরগাঁও',
+  'ময়মনসিংহ', 'জামালপুর', 'নেত্রকোণা', 'শেরপুর'
+]
+
+// Case/space-insensitive lookup so "ঢাকা", " ঢাকা ", "dhaka", "DHAKA" etc. all resolve
+// to the same canonical district name. Returns '' if no real district matches.
+export function resolveDistrict(input: string): string {
+  const norm = (input || '').trim().toLowerCase().replace(/\s+/g, '')
+  if (!norm) return ''
+  const ENGLISH_ALIASES: Record<string, string> = {
+    dhaka: 'ঢাকা', chittagong: 'চট্টগ্রাম', chattogram: 'চট্টগ্রাম', khulna: 'খুলনা', rajshahi: 'রাজশাহী',
+    sylhet: 'সিলেট', barisal: 'বরিশাল', barishal: 'বরিশাল', rangpur: 'রংপুর', mymensingh: 'ময়মনসিংহ',
+    comilla: 'কুমিল্লা', cumilla: 'কুমিল্লা', coxsbazar: 'কক্সবাজার', jessore: 'যশোর', jashore: 'যশোর'
+  }
+  if (ENGLISH_ALIASES[norm]) return ENGLISH_ALIASES[norm]
+  for (const d of BD_DISTRICTS) {
+    if (d.trim().toLowerCase().replace(/\s+/g, '') === norm) return d
+  }
+  return ''
+}
+
+// Bengali + English letters, spaces, dots, hyphens and apostrophes only (covers
+// legitimate human names in both scripts). Digits and other symbols are rejected.
+const NAME_CHARS_RE = /^[\u0980-\u09FFa-zA-Z\s.'-]+$/
+// Any single character repeated 4+ times in a row (e.g. "aaaa", "কককক", "....") —
+// a strong signal of junk/placeholder input rather than a real name/address/area.
+const REPEATED_CHAR_RE = /(.)\1{3,}/
+
+export function validCustomerName(name: string): boolean {
+  const v = (name || '').trim()
+  if (v.length < 3 || v.length > 100) return false
+  if (!NAME_CHARS_RE.test(v)) return false
+  if (REPEATED_CHAR_RE.test(v)) return false
+  // Require at least two "words" (first + last name) so a single stray letter/word
+  // like "k" or "test" can't pass.
+  const words = v.split(/\s+/).filter(w => w.replace(/[.'-]/g, '').length > 0)
+  if (words.length < 2) return false
+  // Every word must have at least one real letter (not just dots/hyphens).
+  if (words.some(w => w.replace(/[.'-]/g, '').length === 0)) return false
+  return true
+}
+
+export function validAddress(address: string): boolean {
+  const v = (address || '').trim()
+  if (v.length < 15 || v.length > 500) return false
+  if (REPEATED_CHAR_RE.test(v)) return false
+  // A real address normally combines letters with at least one digit (house/road/
+  // holding number) OR at least 3 distinct words — this filters out junk like
+  // "asdfasdfasdfasdf" or "................" while still allowing addresses that
+  // spell numbers out in words.
+  const hasDigit = /\d/.test(v)
+  const wordCount = v.split(/\s+/).filter(Boolean).length
+  if (!hasDigit && wordCount < 3) return false
+  // Reject if it's dominated by a tiny alphabet of repeating characters (e.g.
+  // "abcabcabcabcabcabc") — require a reasonable variety of distinct characters.
+  const distinctChars = new Set(v.replace(/\s/g, '').toLowerCase()).size
+  if (distinctChars < 5) return false
+  return true
+}
+
+export function validUpazila(upazila: string): boolean {
+  const v = (upazila || '').trim()
+  if (v.length < 2 || v.length > 100) return false
+  if (!NAME_CHARS_RE.test(v)) return false
+  if (REPEATED_CHAR_RE.test(v)) return false
+  const distinctChars = new Set(v.replace(/\s/g, '').toLowerCase()).size
+  if (distinctChars < 2) return false
+  return true
+}
+
 // Meta (Facebook) requires phone numbers WITH the country code, digits only,
 // no leading zero after the country code — e.g. "01711000111" -> "8801711000111".
 // This is the OPPOSITE of normalizePhone() above (which is for local BD storage/
