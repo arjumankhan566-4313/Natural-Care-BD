@@ -321,6 +321,7 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
     eventId,
     sourceUrl: body.source_url || '',
     ip, ua,
+    requestHost: new URL(c.req.url).host,
     fbclid: body.fbclid || '',
     fbclidTs: body.fbclid_ts || '',
     fbp: (body.fbp || '').slice(0, 200),
@@ -436,6 +437,7 @@ pub.post('/events', rateLimit(60, 60_000), async (c) => {
     runBackground(c, forwardToCapi(db, {
       eventName, eventId,
       sourceUrl: body.source_url || '', ip, ua, fbclid: body.fbclid || '', fbclidTs: body.fbclid_ts || '',
+      requestHost: new URL(c.req.url).host,
       fbp: (body.fbp || '').slice(0, 200), fbc: (body.fbc || '').slice(0, 200),
       customerName: body.customer_name || '', customerPhone: body.customer_phone || '',
       externalId: (body.session_id || '').slice(0, 128),

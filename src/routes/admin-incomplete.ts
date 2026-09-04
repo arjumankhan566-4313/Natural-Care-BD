@@ -160,6 +160,7 @@ inc.post('/:id/convert', async (c) => {
     sourceUrl: io.source_url || '',
     ip: io.ip_address || '',
     ua: io.user_agent || '',
+    requestHost: new URL(c.req.url).host,
     fbclid: io.fbclid || '',
     fbclidTs: '',
     customerName: io.customer_name || '',
@@ -181,6 +182,7 @@ r.route('/incomplete-orders', inc)
 const PIXEL_KEYS = [
   'meta_pixel_id', 'meta_pixel_enabled', 'meta_events_enabled',
   'meta_capi_token', 'meta_capi_enabled', 'meta_test_event_code', 'meta_advanced_matching',
+  'meta_pixel_host_lock', 'meta_pixel_allowed_hosts',
   'ga_id', 'gtm_id', 'tiktok_pixel_id'
 ]
 const PIXEL_SECRET = ['meta_capi_token']

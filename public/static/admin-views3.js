@@ -804,6 +804,15 @@
             '<div><i class="fas fa-flask mr-1"></i>Test Event Code দিলে টেস্ট ইভেন্টগুলো Events Manager → Test Events ট্যাবে লাইভ দেখা যাবে।</div>' +
             '<div><i class="fas fa-lock mr-1"></i>Token কখনো ফ্রন্টএন্ডে exposed হয় না — শুধু সার্ভারে থাকে।</div>' +
           '</div>') +
+        sectionCard('<i class="fas fa-shield-halved text-emerald-600 mr-2"></i>পিক্সেল হোস্ট লক (ডুপ্লিকেট/জাংক ইভেন্ট প্রতিরোধ)',
+          '<div class="grid md:grid-cols-2 gap-x-4">' +
+          f('meta_pixel_host_lock', 'হোস্ট লক চালু (1) / বন্ধ (0)') +
+          f('meta_pixel_allowed_hosts', 'অনুমোদিত হোস্ট (কমা দিয়ে)', 'naturalcarebangladesh.shop,natural-care-bd.pages.dev,localhost,127.0.0.1') + '</div>' +
+          '<div class="bg-amber-50 rounded-xl p-3 mt-2 text-xs text-amber-900 space-y-1">' +
+            '<div><i class="fas fa-triangle-exclamation mr-1"></i><b>এটির কাজ:</b> Meta ডায়াগনস্টিকসে "InitiateCheckout/PageView/ViewContent events are not deduplicated" এররের একটি মূল কারণ হলো — একই পিক্সেলে পুরনো dev sandbox/কপি সাইট থেকে জাংক ইভেন্ট গিয়ে পৌঁছানো। হোস্ট লক চালু থাকলে শুধু নিচের তালিকার হোস্ট থেকেই পিক্সেল/CAPI ইভেন্ট যাবে; অন্য কোনো হোস্টে চলা কপি Meta-তে কিছু পাঠাতে পারবে না।</div>' +
+            '<div><i class="fas fa-circle-info mr-1"></i>নতুন ডোমেইন যোগ করলে এখানে কমা দিয়ে লিখুন (সাব-ডোমেইন স্বয়ংক্রিয়ভাবে অন্তর্ভুক্ত হয়, যেমন abc123.natural-care-bd.pages.dev)।</div>' +
+            '<div><i class="fas fa-bug mr-1"></i>এটি শুধু এই কোডের নতুন কপিতে কাজ করে — পুরনো AI প্ল্যাটফর্মের পুরনো sandbox সাইট এখনো চললে সেটি ওই প্ল্যাটফর্ম থেকে বন্ধ করুন।</div>' +
+          '</div>') +
         sectionCard('<i class="fas fa-chart-simple text-orange-500 mr-2"></i>অন্যান্য ট্র্যাকিং (ঐচ্ছিক)',
           '<div class="grid md:grid-cols-3 gap-x-4">' +
           f('ga_id', 'Google Analytics ID', 'G-XXXX') + f('gtm_id', 'GTM ID', 'GTM-XXXX') + f('tiktok_pixel_id', 'TikTok Pixel ID') + '</div>') +

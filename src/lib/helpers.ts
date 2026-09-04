@@ -225,6 +225,38 @@ export function runBackground(c: Context<any>, task: Promise<any>) {
   }
 }
 
+// ============ Meta Pixel host lock (anti-pollution guard) ============
+// WHY: the same Meta Pixel (dataset) was receiving events from EVERY host that ran a copy
+// of this app — the production domain, the pages.dev URL, AND old abandoned dev-sandbox
+// copies (e.g. the previous AI platform's sandbox URL) still running OLDER code with the
+// same Pixel ID + CAPI token in their own local DB. Those zombie copies sent un-deduplicated
+// PageView/ViewContent/InitiateCheckout junk straight into the production dataset, which is
+// exactly what Meta's "Event from the server are not deduplicated" diagnostics flag.
+//
+// HOW: a single admin setting (meta_pixel_host_lock, default ON) restricts both the browser
+// Pixel base-code rendering and every server-side CAPI send to an allowlist of hosts
+// (meta_pixel_allowed_hosts, with a safe default covering production + local dev). A copy of
+// this app running on any OTHER host silently stops touching the production Pixel.
+export const DEFAULT_PIXEL_ALLOWED_HOSTS = 'naturalcarebangladesh.shop,natural-care-bd.pages.dev,localhost,127.0.0.1'
+
+// host is allowed if it EXACTLY matches an allowlist entry OR is a SUBDOMAIN of one
+// (e.g. <preview-hash>.natural-care-bd.pages.dev matches entry "natural-care-bd.pages.dev").
+export function isPixelHostAllowed(host: string, allowedList: string): boolean {
+  const h = (host || '').toLowerCase().replace(/:\d+$/, '').trim()
+  if (!h) return false
+  const entries = (allowedList || DEFAULT_PIXEL_ALLOWED_HOSTS).split(',').map(x => x.toLowerCase().replace(/:\d+$/, '').trim()).filter(Boolean)
+  return entries.some(e => h === e || h.endsWith('.' + e))
+}
+
+// Central decision used by BOTH the pixel base-code renderer (index.tsx) and forwardToCapi().
+// Returns the effective allowlist string as well, so callers can stay in sync.
+export async function pixelHostLockState(db: D1Database, requestHost: string): Promise<{ allowed: boolean; lock: boolean; allowList: string }> {
+  const s = await getSettings(db, ['meta_pixel_host_lock', 'meta_pixel_allowed_hosts'])
+  const lock = s.meta_pixel_host_lock !== '0' // default ON (absent setting = protected)
+  const allowList = s.meta_pixel_allowed_hosts || DEFAULT_PIXEL_ALLOWED_HOSTS
+  return { allowed: !lock || isPixelHostAllowed(requestHost, allowList), lock, allowList }
+}
+
 // Forward a tracking event to Meta Conversions API directly from the server.
 // Used both for the guaranteed server-side Purchase send (at order-creation time,
 // independent of whether the customer's browser ever calls /api/public/events)
@@ -244,11 +276,24 @@ export async function forwardToCapi(
     customerName?: string
     customerPhone?: string
     externalId?: string
+    requestHost?: string
     customData?: Record<string, any>
   }
 ): Promise<void> {
   const s = await getSettings(db, ['meta_capi_enabled', 'meta_capi_token', 'meta_pixel_id', 'meta_test_event_code', 'meta_advanced_matching'])
   if (s.meta_capi_enabled !== '1' || !s.meta_capi_token || !s.meta_pixel_id) return
+  // Host lock — never let a copy of this app running on a non-production host (old dev
+  // sandboxes, preview/staging copies with their own DB but the same Pixel ID) pollute the
+  // production Meta dataset with un-deduplicated events. requestHost comes from the server
+  // request itself (not spoofable); sourceUrl is only informational.
+  if (params.requestHost) {
+    const lockState = await pixelHostLockState(db, params.requestHost)
+    if (!lockState.allowed) {
+      await db.prepare('UPDATE tracking_events SET capi_response = ? WHERE event_id = ?')
+        .bind(`skipped: host "${params.requestHost}" not in meta_pixel_allowed_hosts`, params.eventId).run().catch(() => {})
+      return
+    }
+  }
   try {
     const userData: Record<string, any> = {
       client_ip_address: params.ip || undefined,

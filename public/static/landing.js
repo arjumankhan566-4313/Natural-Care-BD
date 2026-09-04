@@ -173,7 +173,11 @@
   function track(eventName, data, eventId, userData) {
     var eid = eventId || genEventId();
     var enabled = state.data && state.data.settings.meta_pixel_enabled === '1';
-    var events = ((state.data && state.data.settings.meta_events_enabled) || '').split(',');
+    // trim each entry — a value like "PageView, ViewContent" (space after comma, as
+    // sometimes entered in the admin panel) must still match event names exactly,
+    // otherwise the browser pixel silently stops firing for some events while the
+    // server CAPI keeps sending them (→ Meta "not deduplicated" diagnostics).
+    var events = ((state.data && state.data.settings.meta_events_enabled) || '').split(',').map(function (x) { return x.trim(); });
     if (enabled && window.fbq && events.indexOf(eventName) !== -1) {
       window.fbq('track', eventName, data || {}, { eventID: eid });
     }
@@ -925,25 +929,33 @@
 
     track('Lead', { content_name: p.name }, null, { name: customerName, phone: phone });
 
-    // Booster requirement #3 + #4: generate the event_id HERE (client-side) and fire
-    // the Purchase pixel immediately — the instant the form is submitted — instead of
-    // waiting for the backend's order-creation + CAPI round trip to finish. The same
-    // event_id is sent to the backend below so its CAPI call reports the identical
-    // event_id, letting Meta de-duplicate the browser Pixel and server CAPI signals
-    // into a single conversion.
-    var pr = getPricing();
-    // content_type:'product' + contents[] per Meta spec — required for catalog/DPA
-    // matching and improves the ad account's event match quality score.
-    var purchaseEventId = track('Purchase', {
-      value: pr.total, currency: 'BDT',
-      content_ids: [String(p.id)], content_type: 'product', content_name: p.name,
-      contents: [{ id: String(p.id), quantity: 1, item_price: pr.subtotal }],
-      num_items: 1
-    });
-    payload.event_id = purchaseEventId;
-
+    // PURCHASE DEDUP + DYNAMIC VALUE FIX (2026-09-04): the browser Purchase pixel now
+    // fires ONLY AFTER the order API responds successfully, using the SERVER-issued
+    // event_id and SERVER-computed grand_total from the response:
+    //   • event_id — generated ONCE by the backend and used for BOTH the server CAPI
+    //     Purchase (fired inside /api/public/orders) and this browser fbq() call, so Meta
+    //     de-duplicates them into ONE conversion by construction. (Previously the client
+    //     generated its own id pre-submit; if the order then FAILED validation/stock/rate
+    //     limits, that phantom browser Purchase could never be paired with a server event
+    //     — it was counted as a purchase that never happened and could never dedup.)
+    //   • value — the authoritative per-order total (package price + real delivery charge)
+    //     straight from the server, currency 'BDT'. Fully dynamic per order — no hardcoded
+    //     amount (previously the browser guessed the total before the server validated it,
+    //     and the two could disagree, hurting ROAS accuracy).
+    // If the customer closes the tab before the response arrives, the order is still
+    // tracked — the guaranteed server-side CAPI Purchase covers that case on its own.
     axios.post('/api/public/orders', payload).then(function (r) {
       var o = r.data.order;
+      var netTotal = Number(o.grand_total) - Number(o.delivery_charge || 0);
+      var totalQty = o.items.reduce(function (s, it) { return s + (Number(it.quantity) || 1); }, 0) || 1;
+      // content_type:'product' + contents[] per Meta spec — required for catalog/DPA
+      // matching and improves the ad account's event match quality score.
+      track('Purchase', {
+        value: Number(o.grand_total), currency: 'BDT',
+        content_ids: [String(p.id)], content_type: 'product', content_name: p.name,
+        contents: [{ id: String(p.id), quantity: totalQty, item_price: Math.round(netTotal / totalQty * 100) / 100 }],
+        num_items: totalQty
+      }, o.event_id, { name: customerName, phone: phone });
       showConfirmation(o);
     }).catch(function (e) {
       state.submitting = false;
