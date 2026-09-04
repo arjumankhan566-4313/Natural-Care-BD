@@ -1,7 +1,7 @@
 // ============ Admin: Incomplete (abandoned) orders + Pixel setup ============
 import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
-import { auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone, forwardToCapi, runBackground, normalizeTrackingSetting, requestHost, effectiveMetaEvents, DEFAULT_META_EVENTS, pixelHostLockState } from '../lib/helpers'
+import { auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone, forwardToCapi, runBackground, normalizeTrackingSetting, requestHost, effectiveMetaEvents, DEFAULT_META_EVENTS, pixelHostLockState, META_GRAPH_API_VERSION } from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
 
 type Env = { Bindings: Bindings; Variables: { user: AdminUser } }
@@ -284,7 +284,7 @@ pixel.post('/test-event', async (c) => {
   if (s.meta_test_event_code) payload.test_event_code = s.meta_test_event_code
   try {
     const pixelId = s.meta_pixel_id.replace(/[^0-9]/g, '')
-    const resp = await fetch(`https://graph.facebook.com/v21.0/${pixelId}/events`, {
+    const resp = await fetch(`https://graph.facebook.com/${META_GRAPH_API_VERSION}/${pixelId}/events`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
     })
     const txt = await resp.text()
