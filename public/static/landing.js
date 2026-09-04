@@ -170,17 +170,35 @@
     return match ? decodeURIComponent(match.pop()) : '';
   }
 
-  function track(eventName, data, eventId, userData) {
-    var eid = eventId || genEventId();
-    var enabled = state.data && String(state.data.settings.meta_pixel_enabled || '').trim() === '1';
+  // The standard Meta web-event set. Mirrors META_EVENT_NAMES in src/lib/helpers.ts.
+  // Used as the FAIL-OPEN default for the browser-side allowlist below: an unset or empty
+  // `meta_events_enabled` must enable ALL of them, never none of them.
+  var DEFAULT_META_EVENTS = ['PageView', 'ViewContent', 'InitiateCheckout', 'Lead', 'Purchase'];
+
+  function browserEventsAllowed() {
+    // BROWSER-PIXEL FIX (was the cause of "server CAPI Processed but browser sends
+    // nothing"): this used to be
+    //     settings.meta_events_enabled.split(',')
+    // which yields [''] when the setting is missing or saved blank — and since the server
+    // CAPI path never reads this setting, EVERY fbq('track') call was skipped while the
+    // server kept sending Purchase/InitiateCheckout/etc. Meta then showed server-only
+    // events and flagged them as not deduplicated. Now an empty/absent/garbage value falls
+    // back to the full standard set, and unknown names are dropped, so the browser list can
+    // never end up empty. The server applies the same rule
+    // (effectiveMetaEvents() in src/lib/helpers.ts) — the two sides always agree.
+    var raw = (state.data && state.data.settings && state.data.settings.meta_events_enabled) || '';
     // trim each entry — a value like "PageView, ViewContent" (space after comma, as
-    // sometimes entered in the admin panel) must still match event names exactly,
-    // otherwise the browser pixel silently stops firing for some events while the
-    // server CAPI keeps sending them (→ Meta "not deduplicated" diagnostics).
-    var events = ((state.data && state.data.settings.meta_events_enabled) || '').split(',').map(function (x) { return x.trim(); });
-    if (enabled && window.fbq && events.indexOf(eventName) !== -1) {
-      window.fbq('track', eventName, data || {}, { eventID: eid });
-    }
+    // sometimes entered in the admin panel) must still match event names exactly.
+    var list = String(raw).split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+    var known = list.filter(function (x) { return DEFAULT_META_EVENTS.indexOf(x) !== -1; });
+    return known.length ? known : DEFAULT_META_EVENTS;
+  }
+
+  // Report an event to OUR backend only (tracking_events log + server-side CAPI forward).
+  // Deliberately makes NO window.fbq() call — used for PageView, which the base pixel
+  // snippet in <head> has already fired for this page load.
+  function reportServerEvent(eventName, data, eventId, userData) {
+    var eid = eventId || genEventId();
     axios.post('/api/public/events', {
       event_name: eventName, event_id: eid, data: data || {},
       source_url: location.href, fbclid: state.utm.fbclid || '', fbclid_ts: state.utm.fbclid_ts || '',
@@ -200,6 +218,18 @@
       session_id: sessionId || ''
     }).catch(function () {});
     return eid;
+  }
+
+  // Fire the browser Pixel AND report to our backend, both carrying the SAME event_id —
+  // that shared id is what lets Meta deduplicate the browser copy and the server (CAPI)
+  // copy of this event into a single conversion instead of counting it twice.
+  function track(eventName, data, eventId, userData) {
+    var eid = eventId || genEventId();
+    var enabled = state.data && String(state.data.settings.meta_pixel_enabled || '').trim() === '1';
+    if (enabled && window.fbq && browserEventsAllowed().indexOf(eventName) !== -1) {
+      window.fbq('track', eventName, data || {}, { eventID: eid });
+    }
+    return reportServerEvent(eventName, data, eid, userData);
   }
 
   // Convert any BD phone format to Meta's required format: digits only, WITH
@@ -465,7 +495,12 @@
     initAutosave();
     initFieldValidation();
     if (product) selectPackage(product.packages.length ? product.packages[0].id : 0);
-    track('PageView', {});
+    // PageView: the base pixel snippet in <head> already fired it in the browser, tagged
+    // with window.NCB_PV_ID. Here we ONLY report it to our own backend — reusing that exact
+    // event_id so the server-side CAPI PageView deduplicates against the browser one.
+    // Calling track('PageView') here instead would fire a SECOND browser PageView and
+    // double-count every single page load.
+    reportServerEvent('PageView', {}, window.NCB_PV_ID || null);
     if (product) track('ViewContent', { content_name: product.name, content_ids: [String(product.id)], content_type: 'product', value: product.sale_price, currency: 'BDT' });
   }
 

@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { Bindings } from './lib/helpers'
-import { getSettings, pixelHostLockState, requestHost } from './lib/helpers'
+import { getSettings, pixelHostLockState, requestHost, effectiveMetaEvents } from './lib/helpers'
 import pub from './routes/public'
 import auth from './routes/auth'
 import adminOrders from './routes/admin-orders'
@@ -17,7 +17,11 @@ import { maybeTriggerLazySync, syncPendingOrders } from './lib/courier-sync'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Cache-busting version for static JS/CSS — bump on every deploy of frontend assets
-const ASSET_V = '21'
+// Bumped to 22 for the browser-Pixel fix (landing.js event allowlist + base-code PageView).
+// /static/* is served with `Cache-Control: public, max-age=31536000, immutable`
+// (public/_headers), so browsers NEVER revalidate — without this bump returning visitors
+// keep running the old cached landing.js and the fix would not reach them.
+const ASSET_V = '22'
 
 // CORS for API routes
 app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }))
@@ -82,7 +86,7 @@ app.route('/api/admin/courier-sync', adminCourierSync) // /sync-now/:orderId, /d
 app.get('/', async (c) => {
   const s = await getSettings(c.env.DB, ['seo_title', 'seo_description', 'seo_keywords', 'og_image', 'canonical_url', 'robots',
     'fb_share_title', 'fb_share_description', 'brand_name', 'brand_tagline', 'brand_logo', 'meta_pixel_id', 'meta_pixel_enabled',
-    'ga_id', 'gtm_id', 'tiktok_pixel_id', 'favicon_url', 'custom_font_family'])
+    'meta_events_enabled', 'ga_id', 'gtm_id', 'tiktok_pixel_id', 'favicon_url', 'custom_font_family'])
   const esc = (t: string) => (t || '').replace(/</g, '&lt;').replace(/"/g, '&quot;')
   const customFont = (s.custom_font_family || '').trim()
   const fontFamilyCss = customFont ? `'${customFont.replace(/'/g, '')}', 'Hind Siliguri', sans-serif` : `'Hind Siliguri', sans-serif`
@@ -99,11 +103,27 @@ app.get('/', async (c) => {
   // as-is (no dedup semantics to protect there).
   const hostLock = await pixelHostLockState(c.env.DB, requestHost(c))
 
+  // Should the base snippet itself fire PageView? Only when PageView is in the admin's
+  // browser-event allowlist. effectiveMetaEvents() treats a missing/blank setting as "all
+  // standard events" (it was previously unset in production, which is what silenced the
+  // browser pixel entirely) so this is true unless the admin deliberately opted out.
+  const basePageView = effectiveMetaEvents(s.meta_events_enabled).split(',').includes('PageView')
+
   const pixelScript = (s.meta_pixel_enabled || '').trim() === '1' && (s.meta_pixel_id || '').trim() && hostLock.allowed ? `
   <script>
   !function(f,b,e,v,n,t,x){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;x=b.getElementsByTagName(e)[0];x.parentNode.insertBefore(t,x)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
-  fbq('init', '${s.meta_pixel_id.replace(/[^0-9]/g, '')}');
-  </script>` : ''
+  fbq('init', '${s.meta_pixel_id.replace(/[^0-9]/g, '')}');${basePageView ? `
+  // PageView belongs in the BASE code (Meta's standard placement, and what Events Manager
+  // checks when it verifies the pixel is installed). It is fired exactly ONCE per page
+  // load, here — public/static/landing.js no longer fires a second browser PageView.
+  // window.NCB_PV_ID is the SAME event_id landing.js sends to /api/public/events, so the
+  // server-side CAPI PageView deduplicates against this browser one instead of counting
+  // twice. Without a shared event_id Meta cannot pair them and flags the dataset with
+  // "PageView events are not deduplicated".
+  window.NCB_PV_ID = 'pv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+  fbq('track', 'PageView', {}, { eventID: window.NCB_PV_ID });` : ''}
+  </script>${basePageView ? `
+  <noscript><img height="1" width="1" style="display:none" alt="" src="https://www.facebook.com/tr?id=${s.meta_pixel_id.replace(/[^0-9]/g, '')}&ev=PageView&noscript=1"></noscript>` : ''}` : ''
 
   const gaScript = s.ga_id ? `
   <script async src="https://www.googletagmanager.com/gtag/js?id=${esc(s.ga_id)}"></script>
