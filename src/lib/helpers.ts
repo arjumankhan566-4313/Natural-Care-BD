@@ -203,6 +203,30 @@ export async function setSetting(db: D1Database, key: string, value: string, cat
   ).bind(key, value, category).run()
 }
 
+// ============ Meta browser-Pixel event allowlist ============
+// WHY THIS EXISTS (root cause of "server events Processed, browser sends nothing"):
+// `meta_events_enabled` is the ONLY gate on the browser side — public/static/landing.js
+// calls window.fbq('track', ...) exclusively for event names present in this list. The
+// server-side CAPI path (forwardToCapi) never consults it. So whenever this setting is
+// ABSENT (it was only ever seeded by seed.sql, which the production deploy pipeline never
+// runs — .github/workflows/deploy.yml applies migrations only) or saved EMPTY (the admin
+// Pixel form prefilled nothing, so pressing "সংরক্ষণ" persisted ''), the browser pixel went
+// completely silent for every event while CAPI kept sending all of them.
+// These constants + effectiveMetaEvents() make "unset" mean "all standard events" on BOTH
+// sides, so the browser and the server can never disagree again.
+export const META_EVENT_NAMES = ['PageView', 'ViewContent', 'InitiateCheckout', 'Lead', 'Purchase'] as const
+export const DEFAULT_META_EVENTS = META_EVENT_NAMES.join(',')
+
+// Normalize a raw meta_events_enabled value into a clean comma list. Falls back to the
+// full standard list when the stored value is missing/blank/whitespace/garbage, and drops
+// unknown event names (a typo like "Pageview" must not silently disable the real one).
+// Unknown-name filtering keeps the list honest; the fallback guarantees non-empty output.
+export function effectiveMetaEvents(value?: string | null): string {
+  const cleaned = String(value ?? '').split(',').map(x => x.trim()).filter(Boolean)
+  const known = cleaned.filter(x => (META_EVENT_NAMES as readonly string[]).includes(x))
+  return known.length ? known.join(',') : DEFAULT_META_EVENTS
+}
+
 // Normalize pixel/CAPI keys on every admin save path (Pixel page AND general Settings).
 // Without this, saving Settings could re-store "https://shop/" in the allowlist and kill
 // the browser Pixel, or persist "1 " so meta_pixel_enabled === '1' fails.
@@ -212,8 +236,11 @@ export function normalizeTrackingSetting(key: string, value: string): string {
   if (key === 'meta_pixel_allowed_hosts') {
     v = v.split(',').map(sanitizePixelHost).filter(Boolean).join(',')
   }
+  // Blank/typo-only input must NEVER be stored as an empty list — that is exactly the
+  // state that switches the browser pixel off while CAPI keeps running. Fall back to the
+  // full standard list instead (effectiveMetaEvents never returns '').
   if (key === 'meta_events_enabled') {
-    v = v.split(',').map(x => x.trim()).filter(Boolean).join(',')
+    v = effectiveMetaEvents(v)
   }
   return v
 }

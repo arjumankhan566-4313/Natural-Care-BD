@@ -779,6 +779,24 @@
             '<div class="bg-gray-50 rounded-xl p-3">' + healthBadge(h.capi_configured, 'CAPI Token সেট আছে', 'CAPI Token নেই') + '</div>' +
             '<div class="bg-gray-50 rounded-xl p-3">' + healthBadge(h.capi_enabled, 'CAPI চালু', 'CAPI বন্ধ') + '</div>' +
           '</div>' +
+          // BROWSER-SIDE status — the half that was silently broken. "Server CAPI ঠিক আছে
+          // কিন্তু ব্রাউজার থেকে কিছুই আসছে না" had no indicator here at all, so add one that
+          // names exactly which events the browser Pixel will fire from THIS host.
+          '<div class="bg-gray-50 rounded-xl p-3 mt-3">' +
+            '<div class="flex flex-wrap items-center gap-2">' +
+              healthBadge(h.browser_pixel_active,
+                '<i class="fas fa-globe mr-1"></i>ব্রাউজার পিক্সেল সক্রিয়',
+                '<i class="fas fa-globe mr-1"></i>ব্রাউজার পিক্সেল নীরব — কিছু ফায়ার হবে না') +
+              '<span class="text-xs text-gray-500">হোস্ট: <code class="text-gray-700">' + esc(h.request_host || '') + '</code>' +
+                (h.host_lock_enabled ? (h.host_allowed ? ' <i class="fas fa-circle-check text-emerald-600"></i>' : ' <i class="fas fa-ban text-red-500"></i> allowlist-এ নেই') : ' (হোস্ট লক বন্ধ)') + '</span>' +
+            '</div>' +
+            '<div class="flex flex-wrap gap-1.5 mt-2">' +
+              (h.browser_events_firing || []).map(function (e) {
+                return '<span class="text-xs font-semibold px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700">' + esc(e) + '</span>';
+              }).join('') || '<span class="text-xs text-red-500">কোনো ইভেন্ট ফায়ার হবে না</span>' +
+            '</div>' +
+            '<p class="text-xs text-gray-400 mt-2">ব্রাউজার ও সার্ভার (CAPI) দুই দিকেই একই <code>event_id</code> পাঠানো হয়, তাই Meta নিজেই ডিডুপ্লিকেট করে। সার্ভার ইভেন্ট আসছে কিন্তু এই তালিকা খালি/লাল হলে ব্রাউজার-সাইড সমস্যা।</p>' +
+          '</div>' +
           '<div class="grid grid-cols-3 gap-3 mt-4">' +
             card('মোট ইভেন্ট (৭ দিন)', cs.total, 'fa-chart-simple', 'bg-blue-100 text-blue-600') +
             card('CAPI পাঠানো', cs.sent, 'fa-paper-plane', 'bg-emerald-100 text-emerald-600') +

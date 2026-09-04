@@ -4,7 +4,8 @@ import type { Bindings } from '../lib/helpers'
 import {
   getSettings, getSetting, generateOrderNumber, generateToken, validBDPhone, normalizePhone,
   recalcOrderProfit, refreshCustomerStats, notify, forwardToCapi, runBackground, STATUS_LABELS_BN,
-  sendSms, fillSmsTemplate, validCustomerName, validAddress, validUpazila, resolveDistrict, requestHost
+  sendSms, fillSmsTemplate, validCustomerName, validAddress, validUpazila, resolveDistrict, requestHost,
+  effectiveMetaEvents, META_EVENT_NAMES
 } from '../lib/helpers'
 import { calculateRisk } from '../lib/risk'
 import { rateLimit } from '../lib/auth'
@@ -42,6 +43,15 @@ pub.get('/content', async (c) => {
     'trust_stat3_number', 'trust_stat3_label', 'trust_stat3_icon',
     'trust_stat4_number', 'trust_stat4_label', 'trust_stat4_icon', 'custom_font_family']
   for (const k of allowedKeys) if (settings[k] !== undefined) publicSettings[k] = settings[k]
+
+  // BROWSER-PIXEL FIX: always ship a usable browser-event allowlist, even when the
+  // `meta_events_enabled` row is absent from D1 (production only ever ran migrations, and
+  // this key existed solely in seed.sql) or was stored empty. Without this the landing
+  // page's gate (`events.indexOf(eventName) !== -1` in public/static/landing.js) matched
+  // nothing, so window.fbq('track') was never called for ANY event while the server-side
+  // CAPI kept sending all of them — the exact "server Processed / browser silent" symptom.
+  // effectiveMetaEvents() also drops typo'd names and never returns an empty list.
+  publicSettings.meta_events_enabled = effectiveMetaEvents(settings.meta_events_enabled)
 
   return c.json({
     settings: publicSettings,
@@ -416,8 +426,7 @@ pub.post('/events', rateLimit(60, 60_000), async (c) => {
   const db = c.env.DB
   const body = await c.req.json().catch(() => ({}))
   const eventName = String(body.event_name || '')
-  const allowed = ['PageView', 'ViewContent', 'InitiateCheckout', 'Lead', 'Purchase']
-  if (!allowed.includes(eventName)) return c.json({ error: 'invalid_event' }, 400)
+  if (!(META_EVENT_NAMES as readonly string[]).includes(eventName)) return c.json({ error: 'invalid_event' }, 400)
   const eventId = String(body.event_id || generateToken(16)).slice(0, 64)
   const ip = c.req.header('cf-connecting-ip') || 'unknown'
   const ua = (c.req.header('user-agent') || '').slice(0, 300)

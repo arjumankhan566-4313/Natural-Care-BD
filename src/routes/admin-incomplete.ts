@@ -1,7 +1,7 @@
 // ============ Admin: Incomplete (abandoned) orders + Pixel setup ============
 import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
-import { auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone, forwardToCapi, runBackground, normalizeTrackingSetting, requestHost } from '../lib/helpers'
+import { auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone, forwardToCapi, runBackground, normalizeTrackingSetting, requestHost, effectiveMetaEvents, DEFAULT_META_EVENTS, pixelHostLockState } from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
 
 type Env = { Bindings: Bindings; Variables: { user: AdminUser } }
@@ -196,6 +196,20 @@ pixel.get('/', async (c) => {
   const s = await getSettings(db, PIXEL_KEYS)
   const out: Record<string, string> = {}
   for (const k of PIXEL_KEYS) out[k] = PIXEL_SECRET.includes(k) && s[k] ? '••••••••' : (s[k] || '')
+  // Prefill the browser-event allowlist with the effective value (missing/blank row -> the
+  // full standard set). Previously the input rendered empty with the list only as a grey
+  // placeholder, so pressing "সংরক্ষণ" persisted '' and silently switched the whole browser
+  // Pixel off while CAPI carried on sending. normalizeTrackingSetting() now also refuses to
+  // store a blank list, so the two sides cannot drift apart again.
+  out.meta_events_enabled = effectiveMetaEvents(s.meta_events_enabled)
+
+  // Exactly which events the BROWSER pixel will fire, per the same rules the landing page
+  // applies (pixel enabled + host allowed + this allowlist). Surfaced in the health panel
+  // because "server shows events, browser shows nothing" had no indicator here at all.
+  const browserEvents = out.meta_events_enabled.split(',').filter(Boolean)
+  const pixelOn = (s.meta_pixel_enabled || '').trim() === '1' && !!(s.meta_pixel_id || '').trim()
+  const lock = await pixelHostLockState(db, requestHost(c))
+  const browserWillFire = pixelOn && lock.allowed ? browserEvents : []
 
   const [eventStats, recent, capiStats] = await Promise.all([
     db.prepare(`SELECT event_name, COUNT(*) as cnt, SUM(sent_to_capi) as capi_sent FROM tracking_events WHERE created_at > datetime('now', '-7 days') GROUP BY event_name ORDER BY cnt DESC`).all(),
@@ -212,7 +226,15 @@ pixel.get('/', async (c) => {
       pixel_configured: !!(s.meta_pixel_id),
       pixel_enabled: s.meta_pixel_enabled === '1',
       capi_configured: !!(s.meta_capi_token),
-      capi_enabled: s.meta_capi_enabled === '1'
+      capi_enabled: s.meta_capi_enabled === '1',
+      // Browser-Pixel diagnostics (the half that was silently broken):
+      browser_events_enabled: browserEvents,          // allowlist in effect
+      browser_events_firing: browserWillFire,         // what actually fires from this host
+      browser_pixel_active: browserWillFire.length > 0,
+      browser_pixel_all_events: browserWillFire.length === DEFAULT_META_EVENTS.split(',').length,
+      host_allowed: lock.allowed,
+      host_lock_enabled: lock.lock,
+      request_host: requestHost(c)
     }
   })
 })
