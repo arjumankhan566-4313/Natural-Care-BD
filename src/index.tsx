@@ -21,7 +21,7 @@ const app = new Hono<{ Bindings: Bindings }>()
 // /static/* is served with `Cache-Control: public, max-age=31536000, immutable`
 // (public/_headers), so browsers NEVER revalidate — without this bump returning visitors
 // keep running the old cached landing.js and the fix would not reach them.
-const ASSET_V = '22'
+const ASSET_V = '23'
 
 // CORS for API routes
 app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }))
