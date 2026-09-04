@@ -229,6 +229,9 @@ pixel.put('/', async (c) => {
     let v = String(value).trim()
     if (PIXEL_SECRET.includes(key) && v === '••••••••') continue
     if (key === 'meta_pixel_id') v = v.replace(/[^0-9]/g, '')
+    if (key === 'meta_pixel_allowed_hosts') {
+      v = v.split(',').map(sanitizePixelHost).filter(Boolean).join(',')
+    }
     await setSetting(db, key, v, 'tracking')
     updated.push(key)
   }

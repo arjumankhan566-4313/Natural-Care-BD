@@ -243,12 +243,28 @@ export function runBackground(c: Context<any>, task: Promise<any>) {
 // this app running on any OTHER host silently stops touching the production Pixel.
 export const DEFAULT_PIXEL_ALLOWED_HOSTS = 'naturalcarebangladesh.shop,natural-care-bd.pages.dev,localhost,127.0.0.1'
 
+// Strip protocol, path, query, hash, port and surrounding whitespace/quotes so an admin
+// paste like "https://naturalcarebangladesh.shop/" still matches request host
+// "naturalcarebangladesh.shop". Host lock stays ON — this only makes the allowlist robust.
+export function sanitizePixelHost(raw: string): string {
+  let v = (raw || '').trim().toLowerCase().replace(/^["']+|["']+$/g, '')
+  if (!v) return ''
+  if (/^[a-z][a-z0-9+.-]*:\/\//.test(v) || /[/?#]/.test(v)) {
+    try {
+      v = new URL(v.includes('://') ? v : `https://${v}`).hostname
+    } catch {
+      v = v.replace(/^[a-z][a-z0-9+.-]*:\/\//, '').split('/')[0].split('?')[0].split('#')[0]
+    }
+  }
+  return v.replace(/:\d+$/, '').replace(/^\.+|\.+$/g, '').trim()
+}
+
 // host is allowed if it EXACTLY matches an allowlist entry OR is a SUBDOMAIN of one
 // (e.g. <preview-hash>.natural-care-bd.pages.dev matches entry "natural-care-bd.pages.dev").
 export function isPixelHostAllowed(host: string, allowedList: string): boolean {
-  const h = (host || '').toLowerCase().replace(/:\d+$/, '').trim()
+  const h = sanitizePixelHost(host)
   if (!h) return false
-  const entries = (allowedList || DEFAULT_PIXEL_ALLOWED_HOSTS).split(',').map(x => x.toLowerCase().replace(/:\d+$/, '').trim()).filter(Boolean)
+  const entries = (allowedList || DEFAULT_PIXEL_ALLOWED_HOSTS).split(',').map(sanitizePixelHost).filter(Boolean)
   return entries.some(e => h === e || h.endsWith('.' + e))
 }
 
