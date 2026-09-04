@@ -204,10 +204,13 @@ pixel.get('/', async (c) => {
   out.meta_events_enabled = effectiveMetaEvents(s.meta_events_enabled)
 
   // Exactly which events the BROWSER pixel will fire, per the same rules the landing page
-  // applies (pixel enabled + host allowed + this allowlist). Surfaced in the health panel
-  // because "server shows events, browser shows nothing" had no indicator here at all.
+  // applies (pixel configured + not explicitly disabled + host allowed + this allowlist).
+  // Surfaced in the health panel because "server shows events, browser shows nothing" had
+  // no indicator here at all.
   const browserEvents = out.meta_events_enabled.split(',').filter(Boolean)
-  const pixelOn = (s.meta_pixel_enabled || '').trim() === '1' && !!(s.meta_pixel_id || '').trim()
+  // FAIL-OPEN (mirrors index.tsx + landing.js): the browser Pixel is ON whenever a Pixel ID
+  // is configured, unless the admin explicitly saved meta_pixel_enabled='0'.
+  const pixelOn = !!(s.meta_pixel_id || '').trim() && (s.meta_pixel_enabled || '').trim() !== '0'
   const lock = await pixelHostLockState(db, requestHost(c))
   const browserWillFire = pixelOn && lock.allowed ? browserEvents : []
 
@@ -224,7 +227,7 @@ pixel.get('/', async (c) => {
     capi_stats: { total: capiStats?.total || 0, sent: capiStats?.sent || 0, failed: capiStats?.failed || 0 },
     health: {
       pixel_configured: !!(s.meta_pixel_id),
-      pixel_enabled: s.meta_pixel_enabled === '1',
+      pixel_enabled: !!(s.meta_pixel_id) && (s.meta_pixel_enabled || '').trim() !== '0',
       capi_configured: !!(s.meta_capi_token),
       capi_enabled: s.meta_capi_enabled === '1',
       // Browser-Pixel diagnostics (the half that was silently broken):
@@ -267,13 +270,21 @@ pixel.post('/test-event', async (c) => {
     return c.json({ error: 'not_configured', message: 'Pixel ID ও CAPI Token আগে সেট করুন' }, 400)
   }
   const eventId = 'test_' + generateToken(12)
+  // The source URL must be the REAL admin URL, not a placeholder. The old code sent
+  // 'https://admin-test-event', which made Meta show a phantom 4th "website" named
+  // `admin-test-event` in Events Manager → Data Sources → Websites — each press of this
+  // button added another fake site to the dataset. Using the real request origin keeps the
+  // test event attributed to naturalcarebangladesh.shop (or wherever the admin panel runs).
+  // NOTE: set a Test Event Code (meta_test_event_code) so test events land in the
+  // "Test Events" tab instead of the production data entirely.
+  const adminUrl = (() => { try { return new URL(c.req.url).origin + '/admin' } catch { return 'https://naturalcarebangladesh.shop/admin' } })()
   const payload: any = {
     data: [{
       event_name: 'PageView',
       event_time: Math.floor(Date.now() / 1000),
       event_id: eventId,
       action_source: 'website',
-      event_source_url: 'https://admin-test-event',
+      event_source_url: adminUrl,
       user_data: {
         client_ip_address: c.req.header('cf-connecting-ip') || '127.0.0.1',
         client_user_agent: c.req.header('user-agent') || 'admin-test'

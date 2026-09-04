@@ -194,6 +194,51 @@
     return known.length ? known : DEFAULT_META_EVENTS;
   }
 
+  // FAIL-OPEN browser-Pixel enablement (2026-09-05 fix) — mirrors the server gate in
+  // src/index.tsx. The browser Pixel fires whenever a Pixel ID is configured, UNLESS the
+  // admin explicitly saved meta_pixel_enabled='0' OR the host lock denies this host.
+  // Previously this required meta_pixel_enabled==='1', but the migration default is '0',
+  // so a shop with Pixel ID + events + working CAPI still got ZERO browser events.
+  function browserPixelAllowed() {
+    var s = state.data && state.data.settings;
+    if (!s) return false;
+    if (!String(s.meta_pixel_id || '').trim()) return false;               // no Pixel ID
+    if (String(s.meta_pixel_enabled || '').trim() === '0') return false;   // explicit OFF only
+    if (s.meta_pixel_host_allowed === '0') return false;                   // host lock denied
+    return true;
+  }
+
+  // DYNAMIC BASE-PIXEL INJECTION (browser-Pixel fix). The server normally injects the Meta
+  // base code into <head> (src/index.tsx) and flags it via window.__ncbPixelBaseInjected.
+  // This client-side fallback injects it when that snippet is missing for any reason (e.g.
+  // the HTML was produced by an older Worker while this newer JS is still cached), so
+  // window.fbq() always exists before any track() call. It honours the SAME three gates as
+  // the server — configured Pixel ID, not explicitly disabled, and the host allowlist
+  // (shipped as meta_pixel_host_allowed) — so the host lock is never bypassed client-side.
+  function injectBasePixel() {
+    if (!browserPixelAllowed()) return;
+    if (window.__ncbPixelBaseInjected) return; // server already injected — never double-init
+    var pixelId = String(state.data.settings.meta_pixel_id || '').replace(/[^0-9]/g, '');
+    if (!pixelId) return;
+    !function (f, b, e, v, n, t, x) {
+      if (f.fbq) return;
+      n = f.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); };
+      if (!f._fbq) f._fbq = n;
+      n.push = n; n.loaded = !0; n.version = '2.0'; n.queue = [];
+      t = b.createElement(e); t.async = !0; t.src = v;
+      x = b.getElementsByTagName(e)[0]; x.parentNode.insertBefore(t, x);
+    }(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
+    window.fbq('init', pixelId);
+    window.__ncbPixelBaseInjected = true;
+    // PageView belongs in the base code and fires exactly ONCE per page load. Reuse the
+    // SAME window.NCB_PV_ID that render() later reports to /api/public/events, so the
+    // server-side CAPI PageView deduplicates against this browser copy.
+    if (browserEventsAllowed().indexOf('PageView') !== -1) {
+      window.NCB_PV_ID = 'pv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+      window.fbq('track', 'PageView', {}, { eventID: window.NCB_PV_ID });
+    }
+  }
+
   // Report an event to OUR backend only (tracking_events log + server-side CAPI forward).
   // Deliberately makes NO window.fbq() call — used for PageView, which the base pixel
   // snippet in <head> has already fired for this page load.
@@ -225,8 +270,7 @@
   // copy of this event into a single conversion instead of counting it twice.
   function track(eventName, data, eventId, userData) {
     var eid = eventId || genEventId();
-    var enabled = state.data && String(state.data.settings.meta_pixel_enabled || '').trim() === '1';
-    if (enabled && window.fbq && browserEventsAllowed().indexOf(eventName) !== -1) {
+    if (browserPixelAllowed() && window.fbq && browserEventsAllowed().indexOf(eventName) !== -1) {
       window.fbq('track', eventName, data || {}, { eventID: eid });
     }
     return reportServerEvent(eventName, data, eid, userData);
@@ -1107,6 +1151,10 @@
   // ============ INIT ============
   axios.get('/api/public/content').then(function (r) {
     state.data = r.data;
+    // Ensure the Meta base code is injected into <head> (and window.NCB_PV_ID is set for a
+    // browser PageView) BEFORE render() reports the server-side PageView with the same id.
+    // Normally the server snippet already did this and this is a no-op.
+    injectBasePixel();
     render();
     hideSplash();
     // Show OTP section if enabled

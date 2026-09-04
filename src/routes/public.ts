@@ -5,7 +5,7 @@ import {
   getSettings, getSetting, generateOrderNumber, generateToken, validBDPhone, normalizePhone,
   recalcOrderProfit, refreshCustomerStats, notify, forwardToCapi, runBackground, STATUS_LABELS_BN,
   sendSms, fillSmsTemplate, validCustomerName, validAddress, validUpazila, resolveDistrict, requestHost,
-  effectiveMetaEvents, META_EVENT_NAMES
+  effectiveMetaEvents, META_EVENT_NAMES, pixelHostLockState
 } from '../lib/helpers'
 import { calculateRisk } from '../lib/risk'
 import { rateLimit } from '../lib/auth'
@@ -52,6 +52,15 @@ pub.get('/content', async (c) => {
   // CAPI kept sending all of them — the exact "server Processed / browser silent" symptom.
   // effectiveMetaEvents() also drops typo'd names and never returns an empty list.
   publicSettings.meta_events_enabled = effectiveMetaEvents(settings.meta_events_enabled)
+
+  // Ship the host-lock decision so the browser-side dynamic base-code injector
+  // (public/static/landing.js → injectBasePixel()) honours the SAME allowlist as the
+  // server. Without this flag the client can't know whether the server chose not to render
+  // the base snippet because of the host lock, and would inject it anyway on a blocked
+  // host — defeating the anti-pollution guard. '1' = this host may fire the Pixel,
+  // '0' = host-locked (browser Pixel stays off; CAPI is host-locked server-side too).
+  const hostLock = await pixelHostLockState(db, requestHost(c))
+  publicSettings.meta_pixel_host_allowed = hostLock.allowed ? '1' : '0'
 
   return c.json({
     settings: publicSettings,

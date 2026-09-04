@@ -236,6 +236,21 @@ export function effectiveMetaEvents(value?: string | null): string {
   return known.length ? known.join(',') : DEFAULT_META_EVENTS
 }
 
+// Normalize an on/off flag to a canonical '1' / '0' — FAIL-OPEN.
+// The admin form is a free-text "1/0" box, so the realistic inputs are '1', '0', 'true',
+// 'on', 'yes' … or (most commonly) blank / garbage. Anything that is NOT an explicit OFF
+// is treated as ON, because the historical footgun was: migration 0009 seeded
+// `meta_pixel_enabled = '0'`, the browser-Pixel gate required it to be exactly '1', so a
+// shop that had set the Pixel ID + events (and had CAPI working via its own toggle) still
+// fired ZERO browser events. Fail-open means the browser Pixel can never be silently
+// switched off by a blank/typo'd value — only an explicit '0' (or false/off/no/disabled)
+// disables it.
+export function normalizeEnabledFlag(value?: string | null): string {
+  const v = String(value ?? '').trim().toLowerCase()
+  if (['0', 'false', 'off', 'no', 'n', 'disabled'].includes(v)) return '0'
+  return '1'
+}
+
 // Normalize pixel/CAPI keys on every admin save path (Pixel page AND general Settings).
 // Without this, saving Settings could re-store "https://shop/" in the allowlist and kill
 // the browser Pixel, or persist "1 " so meta_pixel_enabled === '1' fails.
@@ -244,6 +259,13 @@ export function normalizeTrackingSetting(key: string, value: string): string {
   if (key === 'meta_pixel_id') v = v.replace(/[^0-9]/g, '')
   if (key === 'meta_pixel_allowed_hosts') {
     v = v.split(',').map(sanitizePixelHost).filter(Boolean).join(',')
+  }
+  // Fail-open the browser-Pixel toggle: only explicit OFF values store '0'; everything
+  // else (blank / '1' / 'true' / 'on') stores '1'. This keeps the browser and server
+  // gates in lock-step and stops a blank save from silencing the browser Pixel while
+  // CAPI keeps running.
+  if (key === 'meta_pixel_enabled') {
+    v = normalizeEnabledFlag(v)
   }
   // Blank/typo-only input must NEVER be stored as an empty list — that is exactly the
   // state that switches the browser pixel off while CAPI keeps running. Fall back to the
@@ -296,7 +318,13 @@ export function runBackground(c: Context<any>, task: Promise<any>) {
 // Pixel base-code rendering and every server-side CAPI send to an allowlist of hosts
 // (meta_pixel_allowed_hosts, with a safe default covering production + local dev). A copy of
 // this app running on any OTHER host silently stops touching the production Pixel.
-export const DEFAULT_PIXEL_ALLOWED_HOSTS = 'naturalcarebangladesh.shop,natural-care-bd.pages.dev,localhost,127.0.0.1'
+//
+// `workers.dev` is included because the Worker's own URL is `natural-care-bd.<sub>.workers.dev`
+// (the account subdomain is a random string we can't hardcode). Subdomain matching means the
+// entry `workers.dev` covers ANY *.workers.dev host — which is safe here: the host lock exists
+// to stop OTHER copies of this app (novita.ai sandboxes, stray preview tunnels) from polluting
+// the dataset, and those never live on workers.dev.
+export const DEFAULT_PIXEL_ALLOWED_HOSTS = 'naturalcarebangladesh.shop,natural-care-bd.pages.dev,localhost,127.0.0.1,workers.dev'
 
 // Strip protocol, path, query, hash, port and surrounding whitespace/quotes so an admin
 // paste like "https://naturalcarebangladesh.shop/" still matches request host
