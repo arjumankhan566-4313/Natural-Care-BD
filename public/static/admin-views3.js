@@ -810,7 +810,7 @@
           f('meta_pixel_allowed_hosts', 'অনুমোদিত হোস্ট (কমা দিয়ে)', 'naturalcarebangladesh.shop,natural-care-bd.pages.dev,localhost,127.0.0.1') + '</div>' +
           '<div class="bg-amber-50 rounded-xl p-3 mt-2 text-xs text-amber-900 space-y-1">' +
             '<div><i class="fas fa-triangle-exclamation mr-1"></i><b>এটির কাজ:</b> Meta ডায়াগনস্টিকসে "InitiateCheckout/PageView/ViewContent events are not deduplicated" এররের একটি মূল কারণ হলো — একই পিক্সেলে পুরনো dev sandbox/কপি সাইট থেকে জাংক ইভেন্ট গিয়ে পৌঁছানো। হোস্ট লক চালু থাকলে শুধু নিচের তালিকার হোস্ট থেকেই পিক্সেল/CAPI ইভেন্ট যাবে; অন্য কোনো হোস্টে চলা কপি Meta-তে কিছু পাঠাতে পারবে না।</div>' +
-            '<div><i class="fas fa-circle-info mr-1"></i>নতুন ডোমেইন যোগ করলে এখানে কমা দিয়ে লিখুন (সাব-ডোমেইন স্বয়ংক্রিয়ভাবে অন্তর্ভুক্ত হয়, যেমন abc123.natural-care-bd.pages.dev)।</div>' +
+            '<div><i class="fas fa-circle-info mr-1"></i>নতুন ডোমেইন যোগ করলে কমা দিয়ে শুধু হোস্টনেম লিখুন — https:// বা ট্রেইলিং / ছাড়া (সাব-ডোমেইন স্বয়ংক্রিয়ভাবে অন্তর্ভুক্ত)। সেভের সময় URL ফরম্যাট অটো-স্যানিটাইজ হয়।</div>' +
             '<div><i class="fas fa-bug mr-1"></i>এটি শুধু এই কোডের নতুন কপিতে কাজ করে — পুরনো AI প্ল্যাটফর্মের পুরনো sandbox সাইট এখনো চললে সেটি ওই প্ল্যাটফর্ম থেকে বন্ধ করুন।</div>' +
           '</div>') +
         sectionCard('<i class="fas fa-chart-simple text-orange-500 mr-2"></i>অন্যান্য ট্র্যাকিং (ঐচ্ছিক)',

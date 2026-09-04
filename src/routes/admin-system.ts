@@ -1,7 +1,7 @@
 // ============ Admin: Settings, Users, Audit log, Notifications, Export, Demo data ============
 import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
-import { auditLog, hashPassword, setSetting, getSettings, sendSms, validBDPhone, normalizePhone } from '../lib/helpers'
+import { auditLog, hashPassword, setSetting, getSettings, sendSms, validBDPhone, normalizePhone, normalizeTrackingSetting } from '../lib/helpers'
 import { requireAuth, AdminUser, ROLE_PERMISSIONS } from '../lib/auth'
 
 type Env = { Bindings: Bindings; Variables: { user: AdminUser } }
@@ -28,8 +28,9 @@ settings.put('/', async (c) => {
   const updated: string[] = []
   for (const [key, value] of Object.entries(body)) {
     if (typeof value !== 'string' && typeof value !== 'number') continue
-    const v = String(value)
-    if (SECRET_KEYS.includes(key) && v === '••••••••') continue // unchanged masked secret
+    let v = String(value)
+    if (SECRET_KEYS.includes(key) && v.trim() === '••••••••') continue // unchanged masked secret
+    v = normalizeTrackingSetting(key, v)
     await setSetting(db, key, v)
     updated.push(key)
   }
