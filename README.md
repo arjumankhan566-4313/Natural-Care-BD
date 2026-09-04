@@ -3,7 +3,7 @@
 ## Project Overview
 - **Name**: Nature Care Bangladesh (webapp)
 - **Goal**: প্রিমিয়াম, conversion-focused Bangla e-commerce landing page + সম্পূর্ণ order/courier/profit management system
-- **Stack**: Hono + TypeScript + Cloudflare Pages + D1 (SQLite) + TailwindCSS (CDN) + Chart.js
+- **Stack**: Hono + TypeScript + **Cloudflare Workers** (Static Assets + Cron Triggers) + D1 (SQLite) + TailwindCSS + Chart.js
 
 ## URLs
 - **Production (Live)**: https://naturalcarebangladesh.shop (কাস্টম ডোমেইন) / https://natural-care-bd.pages.dev
@@ -12,7 +12,16 @@
 - **Landing Page**: `/`
 - **Order Tracking**: `/track-order`
 - **Admin Panel**: `/admin` — লগইন: `arjumankhan566@gmail.com` (পাসওয়ার্ড admin panel মালিকের কাছে)
-- **Deployment**: ✅ Cloudflare Pages (project: `natural-care-bd`, D1: `natural-care-bd-production`) — **Last deployed: 2026-09-04** (Meta Pixel/CAPI: সম্পূর্ণ event_id ডিডুপ্লিকেশন + ডায়নামিক Purchase ভ্যালু + পিক্সেল হোস্ট লক) — লোকাল এন্ড-টু-এন্ড টেস্টেড ✅
+- **Deployment**: ✅ **Cloudflare Workers** (Worker: `natural-care-bd`, D1: `natural-care-bd-production`) — Pages থেকে Workers-এ মাইগ্রেট (2026-09-04); GitHub Actions দিয়ে `main`-এ push হলেই অটো-ডিপ্লয় (নিচে [Deployment](#deployment-cloudflare-workers) দেখুন)
+- **Workers URL**: `https://natural-care-bd.<your-subdomain>.workers.dev` (প্রথম ডিপ্লয়ের পর wrangler আউটপুটে দেখা যাবে) — কাস্টম ডোমেইন Pages থেকে Worker-এ সরানোর ধাপ Deployment সেকশনে আছে
+
+### Cloudflare Pages → Cloudflare Workers মাইগ্রেশন + GitHub Actions অটো-ডিপ্লয় (2026-09-04) 🆕
+- ✅ **Workers-এ মাইগ্রেশন**: `wrangler.jsonc` এখন একটি Worker কনফিগ — `main: ./dist/index.js` + `assets.directory: ./public` (Workers Static Assets, binding `ASSETS`) + একই D1 (`natural-care-bd-production`, `migrations_dir`) + `observability` (Workers Logs)। `vite.config.ts` এখন `@hono/vite-build/cloudflare-workers` অ্যাডাপ্টার ব্যবহার করে (`_worker.js`/`_routes.json`-এর বদলে `dist/index.js`)। `public/_headers` (static cache) Workers Static Assets-এ আগের মতোই কাজ করে।
+- ✅ **রিয়েল Cron Trigger (Pages-এ যা সম্ভব ছিল না)**: `triggers.crons = "*/5 * * * *"` + `src/index.tsx`-এ নতুন `scheduled` হ্যান্ডলার → Steadfast অটো স্ট্যাটাস সিঙ্ক এখন **প্রকৃত ৫ মিনিট পরপর** চলে, অ্যাডমিন প্যানেল খোলা না থাকলেও। আগের "lazy catch-up" middleware সেফটি-নেট হিসেবে রাখা হয়েছে; atomic `courier_sync_lock` থাকায় cron + lazy একসাথে দুইটি ব্যাচ কখনো চালাবে না।
+- ✅ **GitHub Actions অটো-ডিপ্লয়** (`.github/workflows/deploy.yml`): `main`-এ push → typecheck + build + D1 migrations (remote) + `wrangler deploy`; Pull Request → typecheck + build + `wrangler deploy --dry-run` (কনফিগ ভ্যালিডেশন, কোনো আপলোড না); Actions ট্যাব থেকে ম্যানুয়াল রানও করা যায়। **দুটি repo secret লাগবে**: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (নিচে ধাপ)।
+- ✅ **npm স্ক্রিপ্ট**: `deploy` (`wrangler deploy`), `deploy:dry-run`, `preview` (`wrangler dev --test-scheduled` — `/__scheduled` দিয়ে cron টেস্ট), `typecheck`, `db:migrate:local|remote`, `db:seed:local`, `tail` (লাইভ লগ)।
+- ✅ **লোকাল টেস্টেড**: `wrangler dev`-এ ল্যান্ডিং/ট্র্যাক/অ্যাডমিন পেজ 200, `/static/*` Static Assets থেকে সার্ভ হয় `Cache-Control: immutable` হেডার সহ, `/favicon.ico`/`/assets/:key` D1 রুট ঠিক আছে, API রুট (`/api/public/content` 200, `/api/admin/*` 401 আন-অথ) ঠিক আছে, `/__scheduled` কল করলে cron হ্যান্ডলার চলে (`steadfast sync: {"checked":0,...}`)। `tsc --noEmit`, `npm run build`, `wrangler deploy --dry-run` — সব পরিষ্কার।
+- ⚠️ **ম্যানুয়াল ধাপ (এই sandbox-এ Cloudflare credential নেই, তাই আসল ডিপ্লয় GitHub Actions/লোকাল থেকে করতে হবে)**: (১) repo secrets যোগ, (২) প্রথম ডিপ্লয় করে `workers.dev` URL-এ যাচাই, (৩) কাস্টম ডোমেইন Pages প্রজেক্ট থেকে সরিয়ে Worker-এ যোগ, (৪) Pixel allowed hosts-এ `workers.dev` হোস্ট যোগ (ঐচ্ছিক)। বিস্তারিত নিচে।
 
 ### Meta Pixel/CAPI সম্পূর্ণ ডিডুপ্লিকেশন + ডায়নামিক Purchase ভ্যালু + পিক্সেল হোস্ট লক (2026-09-04) 🆕
 - ✅ **সমস্যা (Meta Events Manager ডায়াগনস্টিকস, Detected 2026-09-04)**: (১) `PageView`, `ViewContent`, `InitiateCheckout` ইভেন্ট "pixel ও server দুই জায়গা থেকে পাঠানো হচ্ছে কিন্তু event_id না থাকায় deduplicate হচ্ছে না" — High priority; (২) "সব website Purchase event একই price data পাঠাচ্ছে" — ROAS accuracy সমস্যা।
@@ -52,7 +61,7 @@
 
 ### Steadfast Auto Status Sync (2026-08-31) 🆕
 - ✅ **স্বয়ংক্রিয় কুরিয়ার স্ট্যাটাস সিঙ্ক**: Steadfast-এ ট্রান্সফার হওয়া প্রতিটি অর্ডারের ডেলিভারি স্ট্যাটাস (pending/delivered/cancelled/hold ইত্যাদি — Steadfast-এর ১১টি অফিসিয়াল স্ট্যাটাসের একটি) এখন প্রতি ৫ মিনিটে অটোমেটিক চেক হয় এবং পরিবর্তন হলে সাথে সাথে আমাদের DB-তে আপডেট হয় — **admin থেকে ম্যানুয়ালি কিছু পরিবর্তন করা লাগে না**।
-- ⚙️ **টেকনিক্যাল নোট**: Cloudflare Pages hosted-deploy-এ real cron (`triggers`) সাপোর্ট নেই, তাই একটি "lazy catch-up sync" প্যাটার্ন ব্যবহার করা হয়েছে — প্রতিটি admin API রিকোয়েস্ট চেক করে শেষ গ্লোবাল সিঙ্ক কতক্ষণ আগে হয়েছে, ৫ মিনিট পার হয়ে গেলে ব্যাকগ্রাউন্ডে (`waitUntil`) একটি ব্যাচ সিঙ্ক ট্রিগার হয় — অ্যাডমিন প্যানেল লগইন থাকা অবস্থায় ব্যবহারিকভাবে এটি রিয়েল ৫-মিনিট ইন্টারভালের মতোই কাজ করে।
+- ⚙️ **টেকনিক্যাল নোট (আপডেট 2026-09-04)**: আগে Cloudflare Pages-এ real cron (`triggers`) সাপোর্ট না থাকায় "lazy catch-up sync" প্যাটার্ন ব্যবহার করা হতো (প্রতিটি admin API রিকোয়েস্টে চেক — ৫ মিনিট পার হলে `waitUntil`-এ ব্যাকগ্রাউন্ড ব্যাচ)। এখন প্রজেক্ট **Cloudflare Workers**-এ চলে, তাই `wrangler.jsonc`-এর `triggers.crons = "*/5 * * * *"` + `scheduled` হ্যান্ডলার দিয়ে **প্রকৃত ৫-মিনিট cron** চলে — অ্যাডমিন প্যানেল বন্ধ থাকলেও সিঙ্ক হয়। lazy middleware সেফটি-নেট হিসেবে আছে (atomic lock থাকায় ডুপ্লিকেট ব্যাচ হয় না)।
 - ✅ Steadfast API লুকআপ প্রায়োরিটি: `consignment_id` → `invoice` → `tracking_code` (fallback chain সহ)।
 - ✅ অর্ডার-ডিটেইল পেজে (কুরিয়ার কার্ড): লাইভ স্ট্যাটাস ব্যাজ, শেষ সিঙ্ক টাইম, "✓ Automatic" ইঙ্গিত, **"🔄 Sync Now"** ম্যানুয়াল রিফ্রেশ বাটন (admin কখনো স্ট্যাটাস টাইপ/সিলেক্ট করতে পারবে না — মান সবসময় Steadfast API থেকেই আসে), এবং **কুরিয়ার স্ট্যাটাস হিস্ট্রি টাইমলাইন** (`courier_status_logs` থেকে অটোমেটিক জেনারেটেড)।
 - ✅ অর্ডার-ডিটেইল ভিউ খোলা থাকলে প্রতি ২০ সেকেন্ডে সাইলেন্ট পোল হয় — শুধু কুরিয়ার কার্ড/হিস্ট্রি অংশ আপডেট হয়, পুরো পেজ রিলোড হয় না।
@@ -185,20 +194,44 @@ Settings → "ফন্ট চেকার" সেকশনে যেকোন�
 
 ## Local Development
 ```bash
-cd /home/user/webapp
-npm run build
-npx wrangler d1 migrations apply webapp-production --local
-npx wrangler d1 execute webapp-production --local --file=./seed.sql
-pm2 start ecosystem.config.cjs
-curl http://localhost:3000
+npm ci
+npm run db:migrate:local      # D1 migrations (local sqlite in .wrangler/)
+npm run db:seed:local         # demo data (seed.sql)
+npm run preview               # build + `wrangler dev --test-scheduled` → http://localhost:8787
+# cron হ্যান্ডলার লোকালে টেস্ট: curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"
+# (বিকল্প: `npm run dev` = vite dev server (HMR), pm2: `pm2 start ecosystem.config.cjs` → :3000)
 ```
 
-## Deployment (Cloudflare Pages)
+## Deployment (Cloudflare Workers)
+
+### A) অটো-ডিপ্লয় — GitHub Actions (recommended)
+`main`-এ push হলেই `.github/workflows/deploy.yml` চলে: typecheck → build → D1 migrations (remote) → `wrangler deploy`। PR-এ শুধু `--dry-run` ভ্যালিডেশন।
+
+**এককালীন সেটআপ (২টি secret):**
+1. Cloudflare Dashboard → **My Profile → API Tokens → Create Token** → টেমপ্লেট **"Edit Cloudflare Workers"** নিন, তারপর permission-এ **Account → D1 → Edit** যোগ করুন (migrations-এর জন্য) → Continue → Create Token → টোকেন কপি করুন।
+2. Cloudflare Dashboard → **Workers & Pages → Overview** → ডান পাশে **Account ID** কপি করুন।
+3. GitHub → repo → **Settings → Secrets and variables → Actions → New repository secret**:
+   - `CLOUDFLARE_API_TOKEN` = ধাপ ১-এর টোকেন
+   - `CLOUDFLARE_ACCOUNT_ID` = ধাপ ২-এর Account ID
+4. Actions ট্যাব → **Deploy (Cloudflare Workers)** → **Run workflow** (অথবা `main`-এ merge করুন)। লগের শেষে `https://natural-care-bd.<subdomain>.workers.dev` URL পাবেন।
+
+### B) ম্যানুয়াল — লোকাল মেশিন থেকে
 ```bash
-npx wrangler d1 create webapp-production   # copy database_id → wrangler.jsonc
-npx wrangler d1 migrations apply webapp-production
-npm run build && npx wrangler pages deploy dist --project-name webapp
+npx wrangler login                 # একবার (ব্রাউজারে Cloudflare লগইন)
+npm run db:migrate:remote          # production D1-এ pending migrations (idempotent)
+npm run deploy                     # build + wrangler deploy
+npm run tail                       # লাইভ লগ (cron রানের আউটপুটও এখানে দেখা যায়)
 ```
+
+### C) কাস্টম ডোমেইন Pages → Worker-এ সরানো (প্রথম সফল ডিপ্লয়ের পর)
+একই hostname একসাথে Pages আর Worker দুই জায়গায় থাকতে পারে না, তাই ক্রমটা গুরুত্বপূর্ণ:
+1. `workers.dev` URL-এ সাইট/অ্যাডমিন/অর্ডার ফ্লো যাচাই করুন (একই production D1 ব্যবহার হচ্ছে, তাই ডেটা একই)।
+2. Cloudflare → **Workers & Pages → natural-care-bd (Pages) → Custom domains** → `naturalcarebangladesh.shop` (ও `www`) **Remove**।
+3. Cloudflare → **Workers & Pages → natural-care-bd (Worker) → Settings → Domains & Routes → Add → Custom domain** → `naturalcarebangladesh.shop` (ও `www.naturalcarebangladesh.shop`) যোগ করুন — DNS/SSL অটো হয়ে যায়। (বিকল্প: `wrangler.jsonc`-এর কমেন্ট করা `routes` ব্লক আন-কমেন্ট করে আবার deploy।)
+4. সব ঠিক থাকলে পুরনো Pages প্রজেক্ট ডিলিট/ডিজেবল করুন (`natural-care-bd.pages.dev` বন্ধ হবে — Pixel allowed hosts থেকে সেটি সরিয়ে `workers.dev` হোস্ট যোগ করতে পারেন: Admin → Pixel Settings → পিক্সেল হোস্ট লক)।
+5. Worker Settings → **Trigger Events**-এ cron `*/5 * * * *` দেখা যাচ্ছে কিনা নিশ্চিত করুন (Logs-এ প্রতি ৫ মিনিটে `[cron */5 * * * *] steadfast sync: {...}` আসবে)।
+
+> নোট: Pixel host lock ডিফল্ট allowlist-এ `naturalcarebangladesh.shop` আছে, তাই কাস্টম ডোমেইন সরানোর পরেও Pixel/CAPI আগের মতোই কাজ করবে; `workers.dev` হোস্টে টেস্ট করলে Pixel ইভেন্ট **ইচ্ছাকৃতভাবে** skip হবে (প্রোডাকশন ডেটা দূষিত না হওয়ার জন্য) — দরকার হলে allowlist-এ যোগ করুন।
 
 ## Production Checklist
 1. ⚠️ Admin password পরিবর্তন করুন (`admin/admin123`)
@@ -209,7 +242,7 @@ npm run build && npx wrangler pages deploy dist --project-name webapp
 6. Real product images/copy দিন
 
 ## Status
-- **Platform**: Cloudflare Pages (D1) — production-এ লাইভ ও সম্পূর্ণ কার্যকর
+- **Platform**: Cloudflare Workers (Static Assets + Cron + D1) — Pages থেকে মাইগ্রেটেড (2026-09-04); GitHub Actions অটো-ডিপ্লয় কনফিগার করা
 - **Last Updated**: 2026-08-30 — **Meta Pixel/CAPI Event Match Quality (EMQ) উন্নতি** 🆕
   1. **`ln` (last name) হ্যাশ যুক্ত** — আগে Advanced Matching-এ শুধু `fn` (first name) পাঠানো হতো, `ln` পাঠানো হতো না। Meta-র EMQ স্কোরিং `fn`+`ln` একসাথে থাকলে বেশি পয়েন্ট দেয় — এই ফিক্সে দুটোই পাঠানো হচ্ছে (কাস্টমারের নামে স্পেস থাকলে শেষ শব্দটুকু `ln` হিসেবে হ্যাশ হয়ে যায়, একটি শব্দের নাম হলে `ln` স্কিপ হয়, এটাই স্বাভাবিক)।
   2. **`external_id` (session_id ভিত্তিক) যুক্ত** — ল্যান্ডিং পেজের প্রতি ভিজিটর সেশনে একটি ইউনিক `session_id` (sessionStorage-এ সংরক্ষিত) এখন প্রতিটি ইভেন্টের (PageView, ViewContent, InitiateCheckout, Lead, Purchase) সাথে হ্যাশ হয়ে Meta-কে `external_id` হিসেবে পাঠানো হচ্ছে। এতে একই ভিজিটরের প্রথম দিকের ইভেন্ট (যেখানে এখনো ফোন/নাম টাইপ করা হয়নি) আর পরের Purchase ইভেন্ট Meta-র কাছে একই ব্যক্তির বলে লিংক হবে — যা "শুধু fn/IP আসছে, ph আসছে না" সমস্যার একটি আংশিক সমাধান (early-funnel ইভেন্টে ফোন সত্যিই তখনো নেই, external_id সেই গ্যাপ পূরণ করে)।

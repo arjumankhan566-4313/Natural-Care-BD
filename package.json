@@ -1,12 +1,18 @@
 {
-  "name": "webapp",
+  "name": "natural-care-bd",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build:css": "tailwindcss -i ./src/styles/tailwind-input.css -o ./public/static/tailwind.css --minify",
     "build": "npm run build:css && vite build",
-    "preview": "wrangler pages dev",
-    "deploy": "npm run build && wrangler pages deploy",
+    "typecheck": "tsc --noEmit -p .",
+    "preview": "npm run build && wrangler dev --test-scheduled",
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:dry-run": "npm run build && wrangler deploy --dry-run",
+    "db:migrate:local": "wrangler d1 migrations apply natural-care-bd-production --local",
+    "db:migrate:remote": "wrangler d1 migrations apply natural-care-bd-production --remote",
+    "db:seed:local": "wrangler d1 execute natural-care-bd-production --local --file=./seed.sql",
+    "tail": "wrangler tail",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings"
   },
   "dependencies": {

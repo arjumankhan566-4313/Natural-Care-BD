@@ -2,13 +2,42 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "natural-care-bd",
   "compatibility_date": "2026-08-25",
-  "pages_build_output_dir": "./dist",
   "compatibility_flags": ["nodejs_compat"],
+
+  // ---- Cloudflare Workers (migrated from Pages) ----
+  // `npm run build` bundles the Hono app (src/index.tsx) to ./dist/index.js via
+  // @hono/vite-build/cloudflare-workers. Static files under ./public (static/*, _headers)
+  // are uploaded as Workers Static Assets and served directly from the edge — requests that
+  // don't match an asset fall through to the Worker (not_found_handling defaults to "none").
+  "main": "./dist/index.js",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+
+  // Workers Logs (dashboard → Workers → natural-care-bd → Logs)
+  "observability": { "enabled": true },
+
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "natural-care-bd-production",
-      "database_id": "7cc4606a-f11f-4ef8-ba4e-78a603668c1f"
+      "database_id": "7cc4606a-f11f-4ef8-ba4e-78a603668c1f",
+      "migrations_dir": "migrations"
     }
-  ]
+  ],
+
+  // Real cron (was impossible on Pages) — Steadfast auto status sync every 5 minutes.
+  // Handled by the `scheduled` export in src/index.tsx.
+  "triggers": { "crons": ["*/5 * * * *"] }
+
+  // ---- Custom domain ----
+  // The domain is currently attached to the *Pages* project. Cloudflare does not allow the same
+  // hostname on Pages and a Worker at the same time, so first deploy + verify on workers.dev,
+  // then remove the custom domain from the Pages project and uncomment this block (or add the
+  // domain from the dashboard: Workers → natural-care-bd → Settings → Domains & Routes):
+  // "routes": [
+  //   { "pattern": "naturalcarebangladesh.shop", "custom_domain": true },
+  //   { "pattern": "www.naturalcarebangladesh.shop", "custom_domain": true }
+  // ]
 }
