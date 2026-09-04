@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { Bindings } from './lib/helpers'
-import { getSettings } from './lib/helpers'
+import { getSettings, pixelHostLockState } from './lib/helpers'
 import pub from './routes/public'
 import auth from './routes/auth'
 import adminOrders from './routes/admin-orders'
@@ -89,7 +89,16 @@ app.get('/', async (c) => {
     ? `<link href="https://fonts.googleapis.com/css2?family=${encodeURIComponent(customFont).replace(/%20/g, '+')}:wght@400;500;600;700;800&display=swap" rel="stylesheet">`
     : ''
 
-  const pixelScript = s.meta_pixel_enabled === '1' && s.meta_pixel_id ? `
+  // PIXEL HOST LOCK (anti-pollution guard): only render the browser Pixel base code when
+  // the request's host is on the production allowlist (meta_pixel_allowed_hosts, default:
+  // naturalcarebangladesh.shop + natural-care-bd.pages.dev + local dev). This stops old
+  // abandoned dev-sandbox copies of this app (still running with the same Pixel ID in
+  // their own DB) from firing un-deduplicated junk into the production Meta dataset —
+  // the root cause of Meta's "events not deduplicated" diagnostics. GA/GTM/TikTok stay
+  // as-is (no dedup semantics to protect there).
+  const hostLock = await pixelHostLockState(c.env.DB, new URL(c.req.url).host)
+
+  const pixelScript = s.meta_pixel_enabled === '1' && s.meta_pixel_id && hostLock.allowed ? `
   <script>
   !function(f,b,e,v,n,t,x){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;x=b.getElementsByTagName(e)[0];x.parentNode.insertBefore(t,x)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
   fbq('init', '${s.meta_pixel_id.replace(/[^0-9]/g, '')}');
