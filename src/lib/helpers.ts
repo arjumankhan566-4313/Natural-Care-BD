@@ -11,6 +11,15 @@ export type Bindings = {
 
 const SALT = 'ncb_salt_2026'
 
+// Meta Graph API version used for every server-side Conversions API (CAPI) call
+// (`POST graph.facebook.com/<version>/<pixel_id>/events`). Meta deprecates each
+// Graph API version ~2 years after release and recommends v22.0+ ("update your base
+// URL to v22.0 or higher"); v21.0 (Jul 2024) is scheduled to deprecate Jan 2027.
+// Centralizing the version here means it only ever has to be bumped in ONE place
+// (both forwardToCapi() and the admin CAPI test event use it) instead of hunting
+// string literals across files.
+export const META_GRAPH_API_VERSION = 'v22.0'
+
 export async function hashPassword(password: string): Promise<string> {
   const data = new TextEncoder().encode(`${SALT}:${password}`)
   const digest = await crypto.subtle.digest('SHA-256', data)
@@ -424,7 +433,7 @@ export async function forwardToCapi(
     const testCode = (s.meta_test_event_code || '').trim()
     if (testCode) payload.test_event_code = testCode
     const pixelId = s.meta_pixel_id.replace(/[^0-9]/g, '')
-    const resp = await fetch(`https://graph.facebook.com/v21.0/${pixelId}/events`, {
+    const resp = await fetch(`https://graph.facebook.com/${META_GRAPH_API_VERSION}/${pixelId}/events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
