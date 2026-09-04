@@ -29,6 +29,10 @@ jobs:
     timeout-minutes: 15
     env:
       WRANGLER_SEND_METRICS: "false"
+      # Secrets are empty on forks / until configured — deploy steps then skip gracefully
+      # (Cloudflare "Workers Builds" GitHub integration, if connected, still deploys on its own).
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,16 +58,14 @@ jobs:
         run: npx wrangler deploy --dry-run
 
       # ---------- main / manual: real deploy ----------
+      - name: Secrets missing → skip deploy
+        if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN == ''
+        run: echo "::notice::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID repo secrets not set — build validated, deploy skipped (add the secrets to enable deploy from Actions)."
+
       - name: Apply D1 migrations (production)
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != ''
         run: npx wrangler d1 migrations apply natural-care-bd-production --remote
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Worker
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != ''
         run: npx wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
