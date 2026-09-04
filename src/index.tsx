@@ -17,11 +17,12 @@ import { maybeTriggerLazySync, syncPendingOrders } from './lib/courier-sync'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Cache-busting version for static JS/CSS — bump on every deploy of frontend assets
-// Bumped to 22 for the browser-Pixel fix (landing.js event allowlist + base-code PageView).
+// Bumped to 25 for the CAPI test-event source-URL fix (no more phantom 'admin-test-event'
+// website in Meta) + the "Test Event Code" warning in the admin Pixel test modal.
 // /static/* is served with `Cache-Control: public, max-age=31536000, immutable`
 // (public/_headers), so browsers NEVER revalidate — without this bump returning visitors
 // keep running the old cached landing.js and the fix would not reach them.
-const ASSET_V = '23'
+const ASSET_V = '25'
 
 // CORS for API routes
 app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }))
@@ -109,10 +110,23 @@ app.get('/', async (c) => {
   // browser pixel entirely) so this is true unless the admin deliberately opted out.
   const basePageView = effectiveMetaEvents(s.meta_events_enabled).split(',').includes('PageView')
 
-  const pixelScript = (s.meta_pixel_enabled || '').trim() === '1' && (s.meta_pixel_id || '').trim() && hostLock.allowed ? `
+  // BROWSER PIXEL — FAIL-OPEN enablement (2026-09-05 fix).
+  // The browser Pixel is ON whenever a Pixel ID is configured, UNLESS the admin explicitly
+  // saved meta_pixel_enabled='0'. Previously this required meta_pixel_enabled==='1', but the
+  // migration default is '0' — so a shop that had set the Pixel ID + events (and whose CAPI
+  // worked via its own meta_capi_enabled toggle) still rendered ZERO browser pixel while
+  // CAPI kept sending. normalizeEnabledFlag() (helpers.ts) now stores '1' for anything
+  // except an explicit OFF, and this gate matches: only '0' disables the browser Pixel.
+  // public/static/landing.js applies the SAME rule (browserPixelAllowed()) plus a dynamic
+  // base-code injector for the rare case this snippet is missing (see comment there).
+  const pixelId = (s.meta_pixel_id || '').replace(/[^0-9]/g, '')
+  const pixelEnabled = !!pixelId && (s.meta_pixel_enabled || '').trim() !== '0'
+
+  const pixelScript = pixelEnabled && hostLock.allowed ? `
   <script>
+  window.__ncbPixelBaseInjected = true;
   !function(f,b,e,v,n,t,x){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;x=b.getElementsByTagName(e)[0];x.parentNode.insertBefore(t,x)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
-  fbq('init', '${s.meta_pixel_id.replace(/[^0-9]/g, '')}');${basePageView ? `
+  fbq('init', '${pixelId}');${basePageView ? `
   // PageView belongs in the BASE code (Meta's standard placement, and what Events Manager
   // checks when it verifies the pixel is installed). It is fired exactly ONCE per page
   // load, here — public/static/landing.js no longer fires a second browser PageView.
@@ -123,7 +137,7 @@ app.get('/', async (c) => {
   window.NCB_PV_ID = 'pv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
   fbq('track', 'PageView', {}, { eventID: window.NCB_PV_ID });` : ''}
   </script>${basePageView ? `
-  <noscript><img height="1" width="1" style="display:none" alt="" src="https://www.facebook.com/tr?id=${s.meta_pixel_id.replace(/[^0-9]/g, '')}&ev=PageView&noscript=1"></noscript>` : ''}` : ''
+  <noscript><img height="1" width="1" style="display:none" alt="" src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"></noscript>` : ''}` : ''
 
   const gaScript = s.ga_id ? `
   <script async src="https://www.googletagmanager.com/gtag/js?id=${esc(s.ga_id)}"></script>

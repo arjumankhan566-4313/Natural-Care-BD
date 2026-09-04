@@ -39,7 +39,7 @@ INSERT OR REPLACE INTO settings (key, value, category) VALUES
   ('meta_events_enabled', 'PageView,ViewContent,InitiateCheckout,Lead,Purchase', 'marketing'),
   ('meta_advanced_matching', '1', 'tracking'),
   ('meta_pixel_host_lock', '1', 'tracking'),
-  ('meta_pixel_allowed_hosts', 'naturalcarebangladesh.shop,natural-care-bd.pages.dev,localhost,127.0.0.1', 'tracking'),
+  ('meta_pixel_allowed_hosts', 'naturalcarebangladesh.shop,natural-care-bd.pages.dev,localhost,127.0.0.1,workers.dev', 'tracking'),
   ('ga_id', '', 'marketing'),
   ('gtm_id', '', 'marketing'),
   ('tiktok_pixel_id', '', 'marketing'),

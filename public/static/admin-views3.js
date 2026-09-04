@@ -825,7 +825,7 @@
         sectionCard('<i class="fas fa-shield-halved text-emerald-600 mr-2"></i>পিক্সেল হোস্ট লক (ডুপ্লিকেট/জাংক ইভেন্ট প্রতিরোধ)',
           '<div class="grid md:grid-cols-2 gap-x-4">' +
           f('meta_pixel_host_lock', 'হোস্ট লক চালু (1) / বন্ধ (0)') +
-          f('meta_pixel_allowed_hosts', 'অনুমোদিত হোস্ট (কমা দিয়ে)', 'naturalcarebangladesh.shop,natural-care-bd.pages.dev,localhost,127.0.0.1') + '</div>' +
+          f('meta_pixel_allowed_hosts', 'অনুমোদিত হোস্ট (কমা দিয়ে)', 'naturalcarebangladesh.shop,natural-care-bd.pages.dev,localhost,127.0.0.1,workers.dev') + '</div>' +
           '<div class="bg-amber-50 rounded-xl p-3 mt-2 text-xs text-amber-900 space-y-1">' +
             '<div><i class="fas fa-triangle-exclamation mr-1"></i><b>এটির কাজ:</b> Meta ডায়াগনস্টিকসে "InitiateCheckout/PageView/ViewContent events are not deduplicated" এররের একটি মূল কারণ হলো — একই পিক্সেলে পুরনো dev sandbox/কপি সাইট থেকে জাংক ইভেন্ট গিয়ে পৌঁছানো। হোস্ট লক চালু থাকলে শুধু নিচের তালিকার হোস্ট থেকেই পিক্সেল/CAPI ইভেন্ট যাবে; অন্য কোনো হোস্টে চলা কপি Meta-তে কিছু পাঠাতে পারবে না।</div>' +
             '<div><i class="fas fa-circle-info mr-1"></i>নতুন ডোমেইন যোগ করলে কমা দিয়ে শুধু হোস্টনেম লিখুন — https:// বা ট্রেইলিং / ছাড়া (সাব-ডোমেইন স্বয়ংক্রিয়ভাবে অন্তর্ভুক্ত)। সেভের সময় URL ফরম্যাট অটো-স্যানিটাইজ হয়।</div>' +
@@ -867,9 +867,13 @@
     toast('টেস্ট ইভেন্ট পাঠানো হচ্ছে...');
     axios.post('/api/admin/pixel/test-event').then(function (r) {
       if (r.data.success) {
+        var testCodeNote = r.data.test_event_code
+          ? ''
+          : '<div class="bg-amber-50 rounded-xl p-3 mt-3 text-xs text-amber-800"><i class="fas fa-triangle-exclamation mr-1"></i><b>আপনি Test Event Code সেট করেননি</b> — তাই এই টেস্ট ইভেন্টটি প্রোডাকশন ডেটায় (আসল রিপোর্টে) যোগ হয়ে গেছে, "Test Events" ট্যাবে যায়নি। প্রোডাকশন ডেটা পরিষ্কার রাখতে উপরের ঘরে Test Event Code বসিয়ে সংরক্ষণ করুন।</div>';
         modal('<i class="fas fa-circle-check text-emerald-600 mr-2"></i>CAPI টেস্ট সফল!',
-          '<p class="text-sm text-gray-700 mb-3">Meta সার্ভারে টেস্ট ইভেন্ট পৌঁছেছে। Events Manager → Test Events ট্যাবে দেখুন।</p>' +
-          '<div class="bg-gray-50 rounded-xl p-3 text-xs font-mono break-all">' + esc(r.data.response) + '</div>',
+          '<p class="text-sm text-gray-700 mb-3">Meta সার্ভারে টেস্ট ইভেন্ট পৌঁছেছে।' + (r.data.test_event_code ? ' Events Manager → <b>Test Events</b> ট্যাবে দেখুন।' : '') + '</p>' +
+          '<div class="bg-gray-50 rounded-xl p-3 text-xs font-mono break-all">' + esc(r.data.response) + '</div>' +
+          testCodeNote,
           '<button onclick="A.closeModal()" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold">ঠিক আছে</button>');
       } else {
         modal('<i class="fas fa-circle-xmark text-red-500 mr-2"></i>CAPI টেস্ট ব্যর্থ',
