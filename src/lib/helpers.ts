@@ -3,6 +3,10 @@ import type { Context } from 'hono'
 
 export type Bindings = {
   DB: D1Database
+  /** Workers Static Assets (wrangler.jsonc → assets.binding). Files in ./public are served
+   *  directly by Cloudflare before the Worker runs; this binding lets server code fetch them
+   *  too (e.g. env.ASSETS.fetch(new URL('/static/logo.png', c.req.url))). */
+  ASSETS: Fetcher
 }
 
 const SALT = 'ncb_salt_2026'

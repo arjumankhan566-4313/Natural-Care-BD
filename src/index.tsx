@@ -12,7 +12,7 @@ import adminSystem from './routes/admin-system'
 import adminIncomplete from './routes/admin-incomplete'
 import adminCourierSync from './routes/admin-courier-sync'
 import { runBackground } from './lib/helpers'
-import { maybeTriggerLazySync } from './lib/courier-sync'
+import { maybeTriggerLazySync, syncPendingOrders } from './lib/courier-sync'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -55,12 +55,13 @@ app.get('/assets/:key', async (c) => {
   }
 })
 
-// Steadfast Auto Status Sync — "lazy cron" trigger. Cloudflare Pages hosted-deploy does
-// not support wrangler `triggers` (real cron), so instead every admin API request cheaply
-// checks "has 5 minutes passed since the last global sync?" and, if so, kicks off a
-// background batch via runBackground() (executionCtx.waitUntil) without adding latency to
-// the request itself. Since the admin panel is polled every ~15s while anyone is logged
-// in, this behaves like a real 5-minute interval in practice.
+// Steadfast Auto Status Sync — primary trigger is now the real Workers cron
+// (`triggers.crons` in wrangler.jsonc → `scheduled` handler at the bottom of this file).
+// This "lazy" middleware is kept as a safety net (e.g. `wrangler dev` without
+// --test-scheduled, or if the cron ever misfires): every admin API request cheaply checks
+// "has 5 minutes passed since the last global sync?" and, if so, kicks off a background
+// batch via runBackground() (executionCtx.waitUntil) without adding latency. The atomic
+// courier_sync_lock guarantees cron + lazy trigger never run two batches at once.
 app.use('/api/admin/*', async (c, next) => {
   await next()
   runBackground(c, maybeTriggerLazySync(c.env.DB))
@@ -301,4 +302,19 @@ table{font-size:0.875rem}
 </html>`)
 })
 
-export default app
+// ============ CLOUDFLARE WORKERS EXPORTS ============
+// Real cron (wrangler.jsonc → triggers.crons = "*/5 * * * *"): Steadfast auto status sync.
+// syncPendingOrders() takes the atomic courier_sync_lock, so an overlapping lazy-trigger run
+// from the admin middleware is skipped safely.
+const scheduled: ExportedHandlerScheduledHandler<Bindings> = (event, env, ctx) => {
+  ctx.waitUntil(
+    syncPendingOrders(env.DB)
+      .then((r) => console.log(`[cron ${event.cron}] steadfast sync: ${JSON.stringify(r)}`))
+      .catch((e) => console.error(`[cron ${event.cron}] steadfast sync failed:`, e))
+  )
+}
+
+export default {
+  fetch: app.fetch,
+  scheduled
+} satisfies ExportedHandler<Bindings>
