@@ -1,7 +1,7 @@
 // ============ Admin: Incomplete (abandoned) orders + Pixel setup ============
 import { Hono } from 'hono'
 import type { Bindings } from '../lib/helpers'
-import { auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone, forwardToCapi, runBackground } from '../lib/helpers'
+import { auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone, forwardToCapi, runBackground, normalizeTrackingSetting, requestHost } from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
 
 type Env = { Bindings: Bindings; Variables: { user: AdminUser } }
@@ -160,7 +160,7 @@ inc.post('/:id/convert', async (c) => {
     sourceUrl: io.source_url || '',
     ip: io.ip_address || '',
     ua: io.user_agent || '',
-    requestHost: new URL(c.req.url).host,
+    requestHost: requestHost(c),
     fbclid: io.fbclid || '',
     fbclidTs: '',
     customerName: io.customer_name || '',
@@ -228,7 +228,7 @@ pixel.put('/', async (c) => {
     if (typeof value !== 'string' && typeof value !== 'number') continue
     let v = String(value).trim()
     if (PIXEL_SECRET.includes(key) && v === '••••••••') continue
-    if (key === 'meta_pixel_id') v = v.replace(/[^0-9]/g, '')
+    v = normalizeTrackingSetting(key, v)
     await setSetting(db, key, v, 'tracking')
     updated.push(key)
   }

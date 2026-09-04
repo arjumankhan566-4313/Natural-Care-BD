@@ -172,7 +172,7 @@
 
   function track(eventName, data, eventId, userData) {
     var eid = eventId || genEventId();
-    var enabled = state.data && state.data.settings.meta_pixel_enabled === '1';
+    var enabled = state.data && String(state.data.settings.meta_pixel_enabled || '').trim() === '1';
     // trim each entry — a value like "PageView, ViewContent" (space after comma, as
     // sometimes entered in the admin panel) must still match event names exactly,
     // otherwise the browser pixel silently stops firing for some events while the

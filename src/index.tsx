@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { Bindings } from './lib/helpers'
-import { getSettings, pixelHostLockState } from './lib/helpers'
+import { getSettings, pixelHostLockState, requestHost } from './lib/helpers'
 import pub from './routes/public'
 import auth from './routes/auth'
 import adminOrders from './routes/admin-orders'
@@ -17,7 +17,7 @@ import { maybeTriggerLazySync, syncPendingOrders } from './lib/courier-sync'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Cache-busting version for static JS/CSS — bump on every deploy of frontend assets
-const ASSET_V = '20'
+const ASSET_V = '21'
 
 // CORS for API routes
 app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }))
@@ -97,9 +97,9 @@ app.get('/', async (c) => {
   // their own DB) from firing un-deduplicated junk into the production Meta dataset —
   // the root cause of Meta's "events not deduplicated" diagnostics. GA/GTM/TikTok stay
   // as-is (no dedup semantics to protect there).
-  const hostLock = await pixelHostLockState(c.env.DB, new URL(c.req.url).host)
+  const hostLock = await pixelHostLockState(c.env.DB, requestHost(c))
 
-  const pixelScript = s.meta_pixel_enabled === '1' && s.meta_pixel_id && hostLock.allowed ? `
+  const pixelScript = (s.meta_pixel_enabled || '').trim() === '1' && (s.meta_pixel_id || '').trim() && hostLock.allowed ? `
   <script>
   !function(f,b,e,v,n,t,x){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;x=b.getElementsByTagName(e)[0];x.parentNode.insertBefore(t,x)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
   fbq('init', '${s.meta_pixel_id.replace(/[^0-9]/g, '')}');

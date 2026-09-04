@@ -203,6 +203,25 @@ export async function setSetting(db: D1Database, key: string, value: string, cat
   ).bind(key, value, category).run()
 }
 
+// Normalize pixel/CAPI keys on every admin save path (Pixel page AND general Settings).
+// Without this, saving Settings could re-store "https://shop/" in the allowlist and kill
+// the browser Pixel, or persist "1 " so meta_pixel_enabled === '1' fails.
+export function normalizeTrackingSetting(key: string, value: string): string {
+  let v = String(value ?? '').trim()
+  if (key === 'meta_pixel_id') v = v.replace(/[^0-9]/g, '')
+  if (key === 'meta_pixel_allowed_hosts') {
+    v = v.split(',').map(sanitizePixelHost).filter(Boolean).join(',')
+  }
+  if (key === 'meta_events_enabled') {
+    v = v.split(',').map(x => x.trim()).filter(Boolean).join(',')
+  }
+  return v
+}
+
+export function requestHost(c: Context<any>): string {
+  return (c.req.header('host') || (() => { try { return new URL(c.req.url).host } catch { return '' } })() || '').split(',')[0].trim()
+}
+
 export async function auditLog(db: D1Database, userId: number | null, username: string, action: string, entityType: string, entityId: string, details: string, ip = '') {
   await db.prepare(
     'INSERT INTO audit_logs (user_id, username, action, entity_type, entity_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?)'
@@ -243,12 +262,28 @@ export function runBackground(c: Context<any>, task: Promise<any>) {
 // this app running on any OTHER host silently stops touching the production Pixel.
 export const DEFAULT_PIXEL_ALLOWED_HOSTS = 'naturalcarebangladesh.shop,natural-care-bd.pages.dev,localhost,127.0.0.1'
 
+// Strip protocol, path, query, hash, port and surrounding whitespace/quotes so an admin
+// paste like "https://naturalcarebangladesh.shop/" still matches request host
+// "naturalcarebangladesh.shop". Host lock stays ON — this only makes the allowlist robust.
+export function sanitizePixelHost(raw: string): string {
+  let v = (raw || '').trim().toLowerCase().replace(/^["']+|["']+$/g, '')
+  if (!v) return ''
+  if (/^[a-z][a-z0-9+.-]*:\/\//.test(v) || /[/?#]/.test(v)) {
+    try {
+      v = new URL(v.includes('://') ? v : `https://${v}`).hostname
+    } catch {
+      v = v.replace(/^[a-z][a-z0-9+.-]*:\/\//, '').split('/')[0].split('?')[0].split('#')[0]
+    }
+  }
+  return v.replace(/:\d+$/, '').replace(/^\.+|\.+$/g, '').trim()
+}
+
 // host is allowed if it EXACTLY matches an allowlist entry OR is a SUBDOMAIN of one
 // (e.g. <preview-hash>.natural-care-bd.pages.dev matches entry "natural-care-bd.pages.dev").
 export function isPixelHostAllowed(host: string, allowedList: string): boolean {
-  const h = (host || '').toLowerCase().replace(/:\d+$/, '').trim()
+  const h = sanitizePixelHost(host)
   if (!h) return false
-  const entries = (allowedList || DEFAULT_PIXEL_ALLOWED_HOSTS).split(',').map(x => x.toLowerCase().replace(/:\d+$/, '').trim()).filter(Boolean)
+  const entries = (allowedList || DEFAULT_PIXEL_ALLOWED_HOSTS).split(',').map(sanitizePixelHost).filter(Boolean)
   return entries.some(e => h === e || h.endsWith('.' + e))
 }
 
@@ -256,8 +291,8 @@ export function isPixelHostAllowed(host: string, allowedList: string): boolean {
 // Returns the effective allowlist string as well, so callers can stay in sync.
 export async function pixelHostLockState(db: D1Database, requestHost: string): Promise<{ allowed: boolean; lock: boolean; allowList: string }> {
   const s = await getSettings(db, ['meta_pixel_host_lock', 'meta_pixel_allowed_hosts'])
-  const lock = s.meta_pixel_host_lock !== '0' // default ON (absent setting = protected)
-  const allowList = s.meta_pixel_allowed_hosts || DEFAULT_PIXEL_ALLOWED_HOSTS
+  const lock = (s.meta_pixel_host_lock || '1').trim() !== '0' // default ON (absent setting = protected)
+  const allowList = (s.meta_pixel_allowed_hosts || '').trim() || DEFAULT_PIXEL_ALLOWED_HOSTS
   return { allowed: !lock || isPixelHostAllowed(requestHost, allowList), lock, allowList }
 }
 
@@ -285,7 +320,7 @@ export async function forwardToCapi(
   }
 ): Promise<void> {
   const s = await getSettings(db, ['meta_capi_enabled', 'meta_capi_token', 'meta_pixel_id', 'meta_test_event_code', 'meta_advanced_matching'])
-  if (s.meta_capi_enabled !== '1' || !s.meta_capi_token || !s.meta_pixel_id) return
+  if ((s.meta_capi_enabled || '').trim() !== '1' || !(s.meta_capi_token || '').trim() || !(s.meta_pixel_id || '').trim()) return
   // Host lock — never let a copy of this app running on a non-production host (old dev
   // sandboxes, preview/staging copies with their own DB but the same Pixel ID) pollute the
   // production Meta dataset with un-deduplicated events. requestHost comes from the server
@@ -359,7 +394,8 @@ export async function forwardToCapi(
       }],
       access_token: s.meta_capi_token
     }
-    if (s.meta_test_event_code) payload.test_event_code = s.meta_test_event_code
+    const testCode = (s.meta_test_event_code || '').trim()
+    if (testCode) payload.test_event_code = testCode
     const pixelId = s.meta_pixel_id.replace(/[^0-9]/g, '')
     const resp = await fetch(`https://graph.facebook.com/v21.0/${pixelId}/events`, {
       method: 'POST',

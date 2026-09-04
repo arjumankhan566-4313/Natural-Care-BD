@@ -4,7 +4,7 @@ import type { Bindings } from '../lib/helpers'
 import {
   getSettings, getSetting, generateOrderNumber, generateToken, validBDPhone, normalizePhone,
   recalcOrderProfit, refreshCustomerStats, notify, forwardToCapi, runBackground, STATUS_LABELS_BN,
-  sendSms, fillSmsTemplate, validCustomerName, validAddress, validUpazila, resolveDistrict
+  sendSms, fillSmsTemplate, validCustomerName, validAddress, validUpazila, resolveDistrict, requestHost
 } from '../lib/helpers'
 import { calculateRisk } from '../lib/risk'
 import { rateLimit } from '../lib/auth'
@@ -245,12 +245,10 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
   if (customer.list_status === 'blacklist') status = 'fake'
 
   const orderNumber = generateOrderNumber()
-  // Reuse the client-generated event_id when provided (landing page now fires the Purchase
-  // pixel immediately on submit, before this request even completes — see landing.js). This
-  // guarantees the browser Pixel event and this server's CAPI event carry the EXACT same
-  // event_id, which is required for Meta to de-duplicate the two signals into one conversion.
-  // Falls back to a fresh server-generated id for any caller that doesn't supply one.
-  const eventId = (body.event_id ? String(body.event_id) : '').slice(0, 64) || generateToken(16)
+  // Always mint event_id on the server. landing.js fires browser Purchase AFTER this
+  // response using order.event_id, so Pixel + CAPI share one id. Never trust a client
+  // event_id (old code / bots) — that caused phantom unmatched Purchases.
+  const eventId = generateToken(16)
   const packagingCost = Number(settings.default_packaging_cost || 0)
   const codCharge = Math.round(grandTotal * Number(settings.default_cod_fee_percent || 0) / 100)
 
@@ -311,9 +309,8 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
   // Guaranteed server-side Purchase → Meta CAPI. This does NOT depend on the customer's
   // browser calling /api/public/events — it fires here so an ad-blocker, iOS tracking
   // prevention, or the customer closing the tab right after ordering can never cause a
-  // lost Purchase event. The browser already fired its own fbq('track','Purchase', ...)
-  // with this exact event_id BEFORE this request was even sent (see landing.js submitOrder),
-  // so Meta automatically de-duplicates the two signals into a single conversion.
+  // lost Purchase event. The browser fires fbq('track','Purchase') AFTER this response
+  // using the same order.event_id (see landing.js submitOrder), so Meta de-duplicates.
   // Sent via waitUntil (not awaited) so the HTTP response is not delayed by the network
   // round-trip to Meta's servers.
   runBackground(c, forwardToCapi(db, {
@@ -321,7 +318,7 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
     eventId,
     sourceUrl: body.source_url || '',
     ip, ua,
-    requestHost: new URL(c.req.url).host,
+    requestHost: requestHost(c),
     fbclid: body.fbclid || '',
     fbclidTs: body.fbclid_ts || '',
     fbp: (body.fbp || '').slice(0, 200),
@@ -437,7 +434,7 @@ pub.post('/events', rateLimit(60, 60_000), async (c) => {
     runBackground(c, forwardToCapi(db, {
       eventName, eventId,
       sourceUrl: body.source_url || '', ip, ua, fbclid: body.fbclid || '', fbclidTs: body.fbclid_ts || '',
-      requestHost: new URL(c.req.url).host,
+      requestHost: requestHost(c),
       fbp: (body.fbp || '').slice(0, 200), fbc: (body.fbc || '').slice(0, 200),
       customerName: body.customer_name || '', customerPhone: body.customer_phone || '',
       externalId: (body.session_id || '').slice(0, 128),
