@@ -5,7 +5,7 @@ import {
   auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone,
   forwardToCapi, runBackground, normalizeTrackingSetting, requestHost, effectiveMetaEvents,
   DEFAULT_META_EVENTS, pixelHostLockState, META_GRAPH_API_VERSION, buildMetaPurchaseDataResult,
-  resolveMetaFbc, resolveMetaEventId, logTrackingDiagnostic
+  resolveMetaFbc, resolveMetaEventId, logTrackingDiagnostic, ensureTrackingDiagnosticsSchema
 } from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
 
@@ -214,6 +214,9 @@ pixel.use('*', requireAuth('marketing'))
 // Pixel settings + health overview
 pixel.get('/', async (c) => {
   const db = c.env.DB
+  await ensureTrackingDiagnosticsSchema(db).catch((error) => {
+    console.warn(`[MetaTracking][DIAGNOSTIC_SCHEMA_BOOTSTRAP_FAILED] ${String(error)}`)
+  })
   const s = await getSettings(db, PIXEL_KEYS)
   const out: Record<string, string> = {}
   for (const k of PIXEL_KEYS) out[k] = PIXEL_SECRET.includes(k) && s[k] ? '••••••••' : (s[k] || '')

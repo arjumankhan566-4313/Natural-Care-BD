@@ -306,9 +306,10 @@ r.post('/clear-demo-data', requireAuth('*'), async (c) => {
     db.prepare('DELETE FROM expenses'),
     db.prepare('DELETE FROM notifications'),
     db.prepare('DELETE FROM tracking_events'),
-    db.prepare('DELETE FROM tracking_diagnostics'),
     db.prepare('DELETE FROM otp_codes')
   ])
+  // Safe during rolling deployments where diagnostics migration/bootstrap has not run yet.
+  await db.prepare('DELETE FROM tracking_diagnostics').run().catch(() => {})
   await auditLog(db, user.id, user.username, 'clear_demo_data', 'system', '', 'All transactional demo data cleared')
   return c.json({ success: true, message: 'সব ডেমো/টেস্ট ডেটা মুছে ফেলা হয়েছে। প্রোডাক্ট, সেটিংস ও অ্যাডমিন ইউজার অক্ষত আছে।' })
 })

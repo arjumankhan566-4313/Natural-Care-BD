@@ -635,6 +635,46 @@ export type TrackingDiagnostic = Readonly<{
   details?: Record<string, unknown>
 }>
 
+let trackingDiagnosticsSchemaReady = false
+
+// Deployment safety net: GitHub/Cloudflare can deploy Worker code before the separate D1
+// migration command runs (or a repository may not have Cloudflare API secrets configured).
+// Migrations 0012/0013 remain canonical, but this idempotent bootstrap guarantees the first
+// warning is still persisted instead of being lost during a rolling/misconfigured deploy.
+export async function ensureTrackingDiagnosticsSchema(db: D1Database): Promise<void> {
+  if (trackingDiagnosticsSchemaReady) return
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS tracking_diagnostics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
+      code TEXT NOT NULL,
+      source TEXT NOT NULL,
+      event_name TEXT,
+      event_id TEXT,
+      details TEXT NOT NULL DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_tracking_diagnostics_created
+      ON tracking_diagnostics(created_at DESC)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_tracking_diagnostics_code_created
+      ON tracking_diagnostics(code, created_at DESC)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_tracking_diagnostics_event_id
+      ON tracking_diagnostics(event_id)`),
+    db.prepare(`DELETE FROM tracking_diagnostics
+      WHERE event_id IS NOT NULL AND id NOT IN (
+        SELECT MAX(id) FROM tracking_diagnostics WHERE event_id IS NOT NULL
+        GROUP BY source, code, event_id
+      )`),
+    db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tracking_diagnostics_event_code_source
+      ON tracking_diagnostics(source, code, event_id) WHERE event_id IS NOT NULL`),
+    db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_tracking_diagnostics_retention
+      AFTER INSERT ON tracking_diagnostics BEGIN
+        DELETE FROM tracking_diagnostics WHERE created_at < datetime('now', '-90 days');
+      END`)
+  ])
+  trackingDiagnosticsSchemaReady = true
+}
+
 // Persistent + real-time monitoring. Console output is visible in Cloudflare Workers Logs;
 // D1 persistence powers the Admin Pixel health panel. Never pass PII or access tokens here.
 export async function logTrackingDiagnostic(db: D1Database, diagnostic: TrackingDiagnostic): Promise<void> {
@@ -655,6 +695,11 @@ export async function logTrackingDiagnostic(db: D1Database, diagnostic: Tracking
       event_name: safe.event_name, event_id: safe.event_id, details: detailsJson
     })}`)
   } catch {}
+  try {
+    await ensureTrackingDiagnosticsSchema(db)
+  } catch (error: any) {
+    console.warn(`[MetaTracking][DIAGNOSTIC_SCHEMA_BOOTSTRAP_FAILED] ${String(error?.message || error)}`)
+  }
   try {
     await db.prepare(
       `INSERT OR IGNORE INTO tracking_diagnostics (severity, code, source, event_name, event_id, details)

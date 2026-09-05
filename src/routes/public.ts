@@ -8,7 +8,7 @@ import {
   sendSms, fillSmsTemplate, validCustomerName, validAddress, validUpazila, resolveDistrict, requestHost,
   effectiveMetaEvents, pixelHostLockState, buildMetaPurchaseDataResult,
   isMetaEventName, resolveMetaEventId, recoverMetaPurchaseData, logTrackingDiagnostic, resolveMetaFbc,
-  parseMetaFbc
+  parseMetaFbc, ensureTrackingDiagnosticsSchema
 } from '../lib/helpers'
 import { calculateRisk } from '../lib/risk'
 import { rateLimit } from '../lib/auth'
@@ -18,6 +18,9 @@ const pub = new Hono<{ Bindings: Bindings }>()
 // ---- Landing page content (everything the page needs) ----
 pub.get('/content', async (c) => {
   const db = c.env.DB
+  // Idempotent deployment safety net; runs outside the response path and creates the
+  // diagnostics schema if a platform deployed code before applying D1 migrations.
+  runBackground(c, ensureTrackingDiagnosticsSchema(db))
   const [settings, products, benefits, reviews, faqs, sections, banners] = await Promise.all([
     getSettings(db),
     db.prepare(`SELECT id, name, subtitle, slug, description, features, benefits, ingredients, usage_instructions, package_details, main_image, gallery_images, video_url, regular_price, sale_price, stock, stock_status, is_featured FROM products WHERE is_active = 1 AND is_deleted = 0 ORDER BY sort_order, id`).all(),
