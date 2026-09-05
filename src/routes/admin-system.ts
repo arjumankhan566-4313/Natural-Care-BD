@@ -306,6 +306,7 @@ r.post('/clear-demo-data', requireAuth('*'), async (c) => {
     db.prepare('DELETE FROM expenses'),
     db.prepare('DELETE FROM notifications'),
     db.prepare('DELETE FROM tracking_events'),
+    db.prepare('DELETE FROM tracking_diagnostics'),
     db.prepare('DELETE FROM otp_codes')
   ])
   await auditLog(db, user.id, user.username, 'clear_demo_data', 'system', '', 'All transactional demo data cleared')

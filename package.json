@@ -6,6 +6,7 @@
     "build:css": "tailwindcss -i ./src/styles/tailwind-input.css -o ./public/static/tailwind.css --minify",
     "build": "npm run build:css && vite build",
     "typecheck": "tsc --noEmit -p .",
+    "test": "node --test --experimental-strip-types tests/*.test.mjs",
     "preview": "npm run build && wrangler dev --test-scheduled",
     "deploy": "npm run build && wrangler deploy",
     "deploy:dry-run": "npm run build && wrangler deploy --dry-run",
