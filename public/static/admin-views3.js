@@ -750,7 +750,7 @@
   // ============ PIXEL SETUP (dedicated section) ============
   function viewPixel() {
     axios.get('/api/admin/pixel').then(function (r) {
-      var d = r.data, st = d.settings, h = d.health, cs = d.capi_stats;
+      var d = r.data, st = d.settings, h = d.health, cs = d.capi_stats, ds = d.diagnostic_stats || {};
       var f = function (key, label, ph, type) { return field(label, inp('px-' + key, st[key], ph, type)); };
       var healthBadge = function (ok, okText, badText) {
         return ok ? '<span class="flex items-center gap-1.5 text-emerald-700 text-sm font-bold"><i class="fas fa-circle-check"></i>' + okText + '</span>'
@@ -769,15 +769,27 @@
           '<td class="px-3 py-2">' + capiState + '</td>' +
           '<td class="px-3 py-2 text-xs">' + (e.fbclid ? '<span class="text-purple-500">fb ad</span>' : '') + '</td></tr>';
       }).join('');
+      var diagRows = (d.recent_diagnostics || []).map(function (x) {
+        var severity = x.severity === 'critical'
+          ? '<span class="text-red-600 font-bold">CRITICAL</span>'
+          : '<span class="text-amber-600 font-bold">WARNING</span>';
+        var detail = x.details && (x.details.recovery_source || x.details.reason || x.details.http_status || x.details.message) || '';
+        return '<tr class="border-b border-gray-50"><td class="px-3 py-2 text-xs">' + fmtDT(x.created_at) + '</td>' +
+          '<td class="px-3 py-2 text-[11px]">' + severity + '</td>' +
+          '<td class="px-3 py-2 text-xs font-semibold">' + esc(x.code) + '</td>' +
+          '<td class="px-3 py-2 text-xs">' + esc(x.event_name || '—') + '</td>' +
+          '<td class="px-3 py-2 text-xs text-gray-500">' + esc(x.source || '') + (detail ? ' · ' + esc(detail) : '') + '</td></tr>';
+      }).join('');
       setContent(
         // Health overview
         '<div class="bg-white rounded-2xl shadow-sm p-5 mb-5">' +
           '<h3 class="font-bold mb-4"><i class="fas fa-heart-pulse text-red-500 mr-2"></i>পিক্সেল হেলথ চেক</h3>' +
-          '<div class="grid grid-cols-2 md:grid-cols-4 gap-4">' +
+          '<div class="grid grid-cols-2 md:grid-cols-5 gap-4">' +
             '<div class="bg-gray-50 rounded-xl p-3">' + healthBadge(h.pixel_configured, 'Pixel ID সেট আছে', 'Pixel ID নেই') + '</div>' +
             '<div class="bg-gray-50 rounded-xl p-3">' + healthBadge(h.pixel_enabled, 'Pixel চালু', 'Pixel বন্ধ') + '</div>' +
             '<div class="bg-gray-50 rounded-xl p-3">' + healthBadge(h.capi_configured, 'CAPI Token সেট আছে', 'CAPI Token নেই') + '</div>' +
             '<div class="bg-gray-50 rounded-xl p-3">' + healthBadge(h.capi_enabled, 'CAPI চালু', 'CAPI বন্ধ') + '</div>' +
+            '<div class="bg-gray-50 rounded-xl p-3">' + healthBadge(h.tracking_contract_healthy, 'Contract ঠিক আছে', 'Tracking fallback/error আছে') + '</div>' +
           '</div>' +
           // BROWSER-SIDE status — the half that was silently broken. "Server CAPI ঠিক আছে
           // কিন্তু ব্রাউজার থেকে কিছুই আসছে না" had no indicator here at all, so add one that
@@ -796,6 +808,11 @@
               }).join('')) || '<span class="text-xs text-red-500">কোনো ইভেন্ট ফায়ার হবে না</span>') +
             '</div>' +
             '<p class="text-xs text-gray-400 mt-2">ব্রাউজার ও সার্ভার (CAPI) দুই দিকেই একই <code>event_id</code> পাঠানো হয়, তাই Meta নিজেই ডিডুপ্লিকেট করে। সার্ভার ইভেন্ট আসছে কিন্তু এই তালিকা খালি/লাল হলে ব্রাউজার-সাইড সমস্যা।</p>' +
+          '</div>' +
+          '<div class="rounded-xl p-3 mt-3 border ' + (Number(ds.critical_24h || 0) > 0 ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800') + '">' +
+            '<div class="text-sm font-bold"><i class="fas fa-shield-halved mr-1.5"></i>Tracking Contract Monitor: ' +
+              (Number(ds.critical_24h || 0) > 0 ? ds.critical_24h + ' critical warning (২৪ ঘণ্টা)' : 'কোনো critical warning নেই (২৪ ঘণ্টা)') + '</div>' +
+            '<div class="text-xs mt-1">৭ দিনে Event ID fallback: <b>' + (ds.event_id_fallbacks_7d || 0) + '</b> · Purchase price/data fallback: <b>' + (ds.purchase_fallbacks_7d || 0) + '</b> · মোট diagnostics: <b>' + (ds.total_7d || 0) + '</b></div>' +
           '</div>' +
           '<div class="grid grid-cols-3 gap-3 mt-4">' +
             card('মোট ইভেন্ট (৭ দিন)', cs.total, 'fa-chart-simple', 'bg-blue-100 text-blue-600') +
@@ -833,7 +850,8 @@
           '</div>') +
         sectionCard('<i class="fas fa-chart-simple text-orange-500 mr-2"></i>অন্যান্য ট্র্যাকিং (ঐচ্ছিক)',
           '<div class="grid md:grid-cols-3 gap-x-4">' +
-          f('ga_id', 'Google Analytics ID', 'G-XXXX') + f('gtm_id', 'GTM ID', 'GTM-XXXX') + f('tiktok_pixel_id', 'TikTok Pixel ID') + '</div>') +
+          f('ga_id', 'Google Analytics ID', 'G-XXXX') + f('gtm_id', 'GTM ID', 'GTM-XXXX') + f('tiktok_pixel_id', 'TikTok Pixel ID') + '</div>' +
+          '<div class="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-800"><i class="fas fa-triangle-exclamation mr-1"></i><b>ডুপ্লিকেট সতর্কতা:</b> এই পেজে Pixel ও CAPI চালু থাকলে GTM container-এ আরেকটি Meta Lead/Purchase tag বা server-CAPI tag publish করবেন না। GTM-কে Meta event-এর মালিক করতে চাইলে আগে সংশ্লিষ্ট built-in Pixel/CAPI toggle বন্ধ করুন। বিস্তারিত <code>docs/meta-pixel-capi-setup-bn.md</code>-এ আছে।</div>') +
         '<div class="flex gap-3 mb-6">' +
           '<button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl"><i class="fas fa-floppy-disk mr-2"></i>পিক্সেল সেটিংস সংরক্ষণ</button>' +
           '<button type="button" onclick="AV.pixelTest()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-5 rounded-xl"><i class="fas fa-flask mr-2"></i>CAPI টেস্ট ইভেন্ট পাঠান</button>' +
@@ -844,6 +862,8 @@
           sectionCard('<i class="fas fa-chart-column text-emerald-600 mr-2"></i>ইভেন্ট পরিসংখ্যান (শেষ ৭ দিন)', tbl(['ইভেন্ট', 'সংখ্যা', 'CAPI পাঠানো'], evRows)) +
           sectionCard('<i class="fas fa-list text-gray-600 mr-2"></i>সাম্প্রতিক ইভেন্ট লগ', tbl(['সময়', 'ইভেন্ট', 'Event ID', 'CAPI', 'সোর্স'], logRows)) +
         '</div>' +
+        sectionCard('<i class="fas fa-triangle-exclamation text-amber-500 mr-2"></i>Tracking Guardrail Diagnostics',
+          diagRows ? tbl(['সময়', 'লেভেল', 'কোড', 'ইভেন্ট', 'বিস্তারিত'], diagRows) : '<div class="text-sm text-emerald-700 bg-emerald-50 rounded-xl p-4"><i class="fas fa-circle-check mr-1"></i>কোনো fallback বা tracking contract inconsistency পাওয়া যায়নি।</div>') +
         // Setup guide
         sectionCard('<i class="fas fa-book text-amber-600 mr-2"></i>সম্পূর্ণ সেটাপ গাইড',
           '<ol class="list-decimal list-inside space-y-2 text-sm text-gray-700">' +
@@ -852,7 +872,8 @@
             '<li><b>CAPI Token:</b> Events Manager → আপনার Pixel → Settings → Conversions API → Generate Access Token → কপি করে বসান, "CAPI চালু" = 1 দিন।</li>' +
             '<li><b>টেস্ট:</b> Events Manager → Test Events ট্যাব খুলুন → Test Event Code কপি করে উপরে বসিয়ে সংরক্ষণ করুন → "CAPI টেস্ট ইভেন্ট পাঠান" ক্লিক করুন → Events Manager-এ ইভেন্ট দেখা গেলে সব ঠিক আছে। ✅</li>' +
             '<li><b>ভেরিফাই:</b> ল্যান্ডিং পেজে গিয়ে একটি টেস্ট অর্ডার দিন — PageView, ViewContent, InitiateCheckout, Lead, Purchase সব ইভেন্ট উপরের লগে ও Events Manager-এ দেখা যাবে।</li>' +
-            '<li><b>ডুপ্লিকেশন চিন্তা নেই:</b> ব্রাউজার ও সার্ভার দুই দিক থেকে একই event_id পাঠানো হয়, Meta নিজেই ডিডুপ্লিকেট করে।</li>' +
+            '<li><b>একটিমাত্র owner:</b> built-in Pixel/CAPI চালু রাখলে GTM/plugin থেকে একই Meta event আবার পাঠাবেন না। GTM ব্যবহার করলে browser <code>eventID</code> ও server <code>event_id</code>-তে একই Data Layer ID map করুন।</li>' +
+            '<li><b>ডিডুপ্লিকেশন:</b> ব্রাউজার ও সার্ভার দুই দিক থেকে একই event_id পাঠানো হয়, Meta নিজেই ডিডুপ্লিকেট করে।</li>' +
           '</ol>'),
         'পিক্সেল সেটাপ');
     }).catch(apiErr);

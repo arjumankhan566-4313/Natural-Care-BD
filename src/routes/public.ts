@@ -1,11 +1,14 @@
 // ============ Public APIs: landing content, order submission, tracking, pixel events ============
 import { Hono } from 'hono'
-import type { Bindings } from '../lib/helpers'
+import { getCookie } from 'hono/cookie'
+import type { Bindings, MetaEventName } from '../lib/helpers'
 import {
   getSettings, getSetting, generateOrderNumber, generateToken, validBDPhone, normalizePhone,
   recalcOrderProfit, refreshCustomerStats, notify, forwardToCapi, runBackground, STATUS_LABELS_BN,
   sendSms, fillSmsTemplate, validCustomerName, validAddress, validUpazila, resolveDistrict, requestHost,
-  effectiveMetaEvents, META_EVENT_NAMES, pixelHostLockState
+  effectiveMetaEvents, pixelHostLockState, buildMetaPurchaseDataResult,
+  isMetaEventName, resolveMetaEventId, recoverMetaPurchaseData, logTrackingDiagnostic, resolveMetaFbc,
+  parseMetaFbc
 } from '../lib/helpers'
 import { calculateRisk } from '../lib/risk'
 import { rateLimit } from '../lib/auth'
@@ -124,7 +127,8 @@ pub.post('/incomplete', rateLimit(60, 60_000), async (c) => {
     Number(body.package_id) || null, (body.package_name || '').slice(0, 200), Number(body.quantity) || 1,
     Number(body.subtotal) || 0, Number(body.delivery_charge) || 0, Number(body.grand_total) || 0,
     (body.utm_source || '').slice(0, 200), (body.utm_medium || '').slice(0, 200), (body.utm_campaign || '').slice(0, 200),
-    (body.utm_term || '').slice(0, 200), (body.utm_content || '').slice(0, 200), (body.fbclid || '').slice(0, 300),
+    (body.utm_term || '').slice(0, 200), (body.utm_content || '').slice(0, 200),
+    typeof body.fbclid === 'string' ? body.fbclid : '',
     (body.campaign_id || '').slice(0, 100), (body.adset_id || '').slice(0, 100), (body.ad_id || '').slice(0, 100),
     ip, ua, (body.source_url || '').slice(0, 500), fieldCount
   ).run()
@@ -165,6 +169,30 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
   const db = c.env.DB
   let body: any
   try { body = await c.req.json() } catch { return c.json({ error: 'invalid_json', message: 'অনুরোধটি সঠিক নয়' }, 400) }
+
+  // Read first-party Meta identifiers directly from the request cookie when available.
+  // JSON copies are only a fallback. Values remain case-sensitive and unmodified.
+  const requestFbp = getCookie(c, '_fbp') || (typeof body.fbp === 'string' ? body.fbp : '')
+  const cookieRequestFbc = getCookie(c, '_fbc') || ''
+  const bodyRequestFbc = typeof body.fbc === 'string' ? body.fbc : ''
+  const rawRequestFbc = parseMetaFbc(cookieRequestFbc) ? cookieRequestFbc : (bodyRequestFbc || cookieRequestFbc)
+  const requestFbclid = typeof body.fbclid === 'string' ? body.fbclid : ''
+  const requestFbclidTs = typeof body.fbclid_ts === 'string' ? body.fbclid_ts : ''
+  // Required normalized field: a real exact-case fbc string, or explicit null for organic
+  // traffic. Never fabricate a ClickID merely to make the field non-null.
+  const requestFbc = resolveMetaFbc(rawRequestFbc, requestFbclid, requestFbclidTs) || null
+  if (rawRequestFbc && !parseMetaFbc(rawRequestFbc)) {
+    runBackground(c, logTrackingDiagnostic(db, {
+      severity: 'warning', code: 'FBC_INVALID', source: 'order_api',
+      eventName: 'Purchase', details: { fbc_present: true, fbclid_present: Boolean(requestFbclid) }
+    }))
+  }
+  if (requestFbclid && !requestFbc) {
+    runBackground(c, logTrackingDiagnostic(db, {
+      severity: 'warning', code: 'FBC_MISSING_WITH_FBCLID', source: 'order_api',
+      eventName: 'Purchase', details: { fbc_present: Boolean(rawRequestFbc), fbclid_present: true }
+    }))
+  }
 
   const name = (body.customer_name || '').trim()
   const phone = normalizePhone(body.phone || '')
@@ -267,7 +295,20 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
   // Always mint event_id on the server. landing.js fires browser Purchase AFTER this
   // response using order.event_id, so Pixel + CAPI share one id. Never trust a client
   // event_id (old code / bots) — that caused phantom unmatched Purchases.
-  const eventId = generateToken(16)
+  const eventId = resolveMetaEventId(`purchase_${generateToken(16)}`, 'Purchase').eventId
+  // One server-authoritative, fully dynamic Purchase payload is reused by BOTH channels.
+  // It comes from resolved DB prices (not browser input): package/item price + actual delivery
+  // charge in grandTotal. Returning this same object to landing.js also prevents browser/CAPI
+  // value or contents drift.
+  const metaPurchaseBuild = buildMetaPurchaseDataResult(grandTotal, orderNumber, resolvedItems)
+  const metaPurchase = metaPurchaseBuild.data
+  if (metaPurchaseBuild.usedFallback) {
+    runBackground(c, logTrackingDiagnostic(db, {
+      severity: 'critical', code: 'PURCHASE_DATA_FALLBACK', source: 'order_api',
+      eventName: 'Purchase', eventId,
+      details: { recovery_source: 'trusted_item_totals', issues: metaPurchaseBuild.issues }
+    }))
+  }
   const packagingCost = Number(settings.default_packaging_cost || 0)
   const codCharge = Math.round(grandTotal * Number(settings.default_cod_fee_percent || 0) / 100)
 
@@ -283,7 +324,7 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
     body.delivery_method || 'home_delivery', note, subtotal, 0, deliveryCharge, grandTotal, status, otpVerified ? 1 : 0,
     risk.score, risk.level, JSON.stringify(risk.reasons), productCost, packagingCost, codCharge,
     (body.utm_source || '').slice(0, 200), (body.utm_medium || '').slice(0, 200), (body.utm_campaign || '').slice(0, 200),
-    (body.utm_term || '').slice(0, 200), (body.utm_content || '').slice(0, 200), (body.fbclid || '').slice(0, 300),
+    (body.utm_term || '').slice(0, 200), (body.utm_content || '').slice(0, 200), requestFbclid,
     (body.campaign_id || '').slice(0, 100), (body.adset_id || '').slice(0, 100), (body.ad_id || '').slice(0, 100),
     'website', ip, ua, eventId
   ).run()
@@ -319,11 +360,14 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
     }))
   }
 
+  // The first-party identifiers captured at request start are forwarded byte-for-byte;
+  // critically, there is no `.toLowerCase()` or `.slice()` on fbc/fbclid.
+
   // Server-side Purchase event log (dedup by event_id) for CAPI
   await db.prepare(
     `INSERT OR IGNORE INTO tracking_events (event_id, event_name, event_data, source_url, ip_address, user_agent, fbclid)
      VALUES (?, 'Purchase', ?, ?, ?, ?, ?)`
-  ).bind(eventId, JSON.stringify({ order_number: orderNumber, value: grandTotal, currency: 'BDT' }), body.source_url || '', ip, ua, body.fbclid || '').run()
+  ).bind(eventId, JSON.stringify(metaPurchase), body.source_url || '', ip, ua, requestFbclid).run()
 
   // Guaranteed server-side Purchase → Meta CAPI. This does NOT depend on the customer's
   // browser calling /api/public/events — it fires here so an ad-blocker, iOS tracking
@@ -338,21 +382,14 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
     sourceUrl: body.source_url || '',
     ip, ua,
     requestHost: requestHost(c),
-    fbclid: body.fbclid || '',
-    fbclidTs: body.fbclid_ts || '',
-    fbp: (body.fbp || '').slice(0, 200),
-    fbc: (body.fbc || '').slice(0, 200),
+    fbclid: requestFbclid,
+    fbclidTs: requestFbclidTs,
+    fbp: requestFbp,
+    fbc: requestFbc,
     customerName: name,
     customerPhone: phone,
-    externalId: (body.session_id || '').slice(0, 128),
-    customData: {
-      value: grandTotal, currency: 'BDT',
-      content_ids: resolvedItems.map(i => String(i.product_id)),
-      content_type: 'product',
-      contents: resolvedItems.map(i => ({ id: String(i.product_id), quantity: i.quantity, item_price: i.unit_price })),
-      num_items: resolvedItems.reduce((s, i) => s + i.quantity, 0),
-      order_number: orderNumber
-    }
+    externalId: typeof body.session_id === 'string' ? body.session_id.slice(0, 128) : '',
+    customData: metaPurchase
   }))
 
   // Mark matching incomplete order as converted (order was completed)
@@ -367,9 +404,15 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
     order: {
       order_number: orderNumber,
       customer_name: name,
-      items: resolvedItems.map(i => ({ name: i.product_name, package: i.package_name, quantity: i.quantity, total: i.total_price })),
+      items: resolvedItems.map(i => ({
+        product_id: String(i.product_id), name: i.product_name, package: i.package_name,
+        quantity: i.quantity, unit_price: i.unit_price, total: i.total_price
+      })),
       subtotal, delivery_charge: deliveryCharge, grand_total: grandTotal,
       event_id: eventId,
+      // Browser fbq('Purchase') must use this exact server-built object. Never calculate a
+      // second price independently in GTM or landing.js.
+      meta_purchase: metaPurchase,
       status
     }
   })
@@ -433,33 +476,107 @@ pub.post('/track', rateLimit(20, 60_000), async (c) => {
 // ---- Client pixel event logging (dedup + CAPI queue) ----
 pub.post('/events', rateLimit(60, 60_000), async (c) => {
   const db = c.env.DB
-  const body = await c.req.json().catch(() => ({}))
-  const eventName = String(body.event_name || '')
-  if (!(META_EVENT_NAMES as readonly string[]).includes(eventName)) return c.json({ error: 'invalid_event' }, 400)
-  const eventId = String(body.event_id || generateToken(16)).slice(0, 64)
+  const body = await c.req.json().catch(() => ({})) as Record<string, any>
+  const rawEventName = String(body.event_name || '')
+  if (!isMetaEventName(rawEventName)) return c.json({ error: 'invalid_event' }, 400)
+  const eventName: MetaEventName = rawEventName
+
+  // Do not drop a legacy/untyped request merely because event_id is missing or corrupt.
+  // Modern landing.js resolves the ID before BOTH channels; this server recovery is a final
+  // safety net and is deliberately noisy because a legacy browser event may not deduplicate.
+  const idResolution = resolveMetaEventId(body.event_id, eventName)
+  const eventId = idResolution.eventId
+  if (idResolution.usedFallback) {
+    runBackground(c, logTrackingDiagnostic(db, {
+      severity: 'critical', code: 'EVENT_ID_FALLBACK', source: 'browser_report',
+      eventName, eventId, details: { reason: idResolution.reason }
+    }))
+  }
+
+  // Browser normalizers report their own fallbacks in-band. Persist only known codes and
+  // selected non-PII scalar fields; never trust/record arbitrary client-provided objects.
+  const clientDiagnostics = Array.isArray(body.client_diagnostics) ? body.client_diagnostics.slice(0, 10) : []
+  for (const raw of clientDiagnostics) {
+    const code = raw?.code
+    if (code !== 'EVENT_ID_FALLBACK' && code !== 'PURCHASE_DATA_FALLBACK' &&
+        code !== 'FBC_MISSING_WITH_FBCLID' && code !== 'FBC_INVALID') continue
+    const rawDetails = raw?.details && typeof raw.details === 'object' ? raw.details : {}
+    runBackground(c, logTrackingDiagnostic(db, {
+      severity: code === 'EVENT_ID_FALLBACK' ? 'critical' : 'warning',
+      code, source: 'browser_report', eventName, eventId,
+      details: {
+        reason: typeof rawDetails.reason === 'string' ? rawDetails.reason.slice(0, 60) : undefined,
+        recovery_source: typeof rawDetails.recovery_source === 'string' ? rawDetails.recovery_source.slice(0, 60) : undefined,
+        reported_at: typeof raw.at === 'string' ? raw.at.slice(0, 40) : undefined
+      }
+    }))
+  }
+
   const ip = c.req.header('cf-connecting-ip') || 'unknown'
   const ua = (c.req.header('user-agent') || '').slice(0, 300)
+  const requestFbp = getCookie(c, '_fbp') || (typeof body.fbp === 'string' ? body.fbp : '')
+  const cookieRequestFbc = getCookie(c, '_fbc') || ''
+  const bodyRequestFbc = typeof body.fbc === 'string' ? body.fbc : ''
+  const rawRequestFbc = parseMetaFbc(cookieRequestFbc) ? cookieRequestFbc : (bodyRequestFbc || cookieRequestFbc)
+  const requestFbclid = typeof body.fbclid === 'string' ? body.fbclid : ''
+  const requestFbclidTs = typeof body.fbclid_ts === 'string' ? body.fbclid_ts : ''
+  const requestFbc = resolveMetaFbc(rawRequestFbc, requestFbclid, requestFbclidTs) || null
+  if (rawRequestFbc && !parseMetaFbc(rawRequestFbc)) {
+    runBackground(c, logTrackingDiagnostic(db, {
+      severity: 'warning', code: 'FBC_INVALID', source: 'browser_report',
+      eventName, eventId,
+      details: { fbc_present: true, fbclid_present: Boolean(requestFbclid) }
+    }))
+  }
+  if (requestFbclid && !requestFbc) {
+    runBackground(c, logTrackingDiagnostic(db, {
+      severity: 'warning', code: 'FBC_MISSING_WITH_FBCLID', source: 'browser_report',
+      eventName, eventId,
+      details: { fbc_present: Boolean(rawRequestFbc), fbclid_present: true }
+    }))
+  }
+
+  let eventData: Record<string, unknown> = body.data && typeof body.data === 'object' && !Array.isArray(body.data)
+    ? body.data
+    : {}
+  if (eventName === 'Purchase') {
+    const recovered = await recoverMetaPurchaseData(db, eventData, eventId)
+    eventData = recovered.data as unknown as Record<string, unknown>
+    if (recovered.source !== 'provided') {
+      runBackground(c, logTrackingDiagnostic(db, {
+        severity: recovered.source === 'emergency' ? 'critical' : 'warning',
+        code: 'PURCHASE_DATA_FALLBACK', source: 'browser_report',
+        eventName, eventId,
+        details: { recovery_source: recovered.source }
+      }))
+    }
+  }
+
   await db.prepare(
     `INSERT OR IGNORE INTO tracking_events (event_id, event_name, event_data, source_url, ip_address, user_agent, fbclid) VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).bind(eventId, eventName, JSON.stringify(body.data || {}), (body.source_url || '').slice(0, 500), ip, ua, (body.fbclid || '').slice(0, 300)).run()
+  ).bind(eventId, eventName, JSON.stringify(eventData), String(body.source_url || '').slice(0, 500), ip, ua, requestFbclid).run()
 
   // Server-side CAPI forward for non-Purchase events. Purchase is already guaranteed-sent
-  // server-side from the /orders route the instant the order is created — sending it again
-  // here (with the same event_id, which the browser's fbq() call also uses) would just be a
-  // redundant duplicate fetch to Meta since Meta already de-dupes on event_id anyway, but we
-  // skip it to save the extra API call.
+  // from /orders with the same server-issued event_id and exact custom_data object.
   if (eventName !== 'Purchase') {
     runBackground(c, forwardToCapi(db, {
       eventName, eventId,
-      sourceUrl: body.source_url || '', ip, ua, fbclid: body.fbclid || '', fbclidTs: body.fbclid_ts || '',
+      sourceUrl: String(body.source_url || ''), ip, ua,
+      fbclid: requestFbclid, fbclidTs: requestFbclidTs,
       requestHost: requestHost(c),
-      fbp: (body.fbp || '').slice(0, 200), fbc: (body.fbc || '').slice(0, 200),
-      customerName: body.customer_name || '', customerPhone: body.customer_phone || '',
-      externalId: (body.session_id || '').slice(0, 128),
-      customData: body.data || {}
+      fbp: requestFbp, fbc: requestFbc,
+      customerName: typeof body.customer_name === 'string' ? body.customer_name : '',
+      customerPhone: typeof body.customer_phone === 'string' ? body.customer_phone : '',
+      externalId: typeof body.session_id === 'string' ? body.session_id.slice(0, 128) : '',
+      customData: eventData
     }))
   }
-  return c.json({ success: true, event_id: eventId })
+  return c.json({
+    success: true,
+    event_id: eventId,
+    recovered_event_id: idResolution.usedFallback,
+    purchase_data_recovered: eventName === 'Purchase' && eventData !== body.data
+  })
 })
 
 export default pub

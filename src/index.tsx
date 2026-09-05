@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { getCookie, setCookie } from 'hono/cookie'
 import type { Bindings } from './lib/helpers'
-import { getSettings, pixelHostLockState, requestHost, effectiveMetaEvents } from './lib/helpers'
+import { getSettings, pixelHostLockState, requestHost, effectiveMetaEvents, resolveMetaFbc, generateToken } from './lib/helpers'
 import pub from './routes/public'
 import auth from './routes/auth'
 import adminOrders from './routes/admin-orders'
@@ -17,12 +18,12 @@ import { maybeTriggerLazySync, syncPendingOrders } from './lib/courier-sync'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Cache-busting version for static JS/CSS — bump on every deploy of frontend assets
-// Bumped to 25 for the CAPI test-event source-URL fix (no more phantom 'admin-test-event'
-// website in Meta) + the "Test Event Code" warning in the admin Pixel test modal.
+// Bumped to 27 for compile/runtime tracking contracts, monitored event-ID/price recovery,
+// persistent diagnostics, and case-preserving required fbc handling.
 // /static/* is served with `Cache-Control: public, max-age=31536000, immutable`
 // (public/_headers), so browsers NEVER revalidate — without this bump returning visitors
 // keep running the old cached landing.js and the fix would not reach them.
-const ASSET_V = '25'
+const ASSET_V = '27'
 
 // CORS for API routes
 app.use('/api/*', cors({ origin: (origin) => origin, credentials: true }))
@@ -85,6 +86,28 @@ app.route('/api/admin/courier-sync', adminCourierSync) // /sync-now/:orderId, /d
 
 // ============ LANDING PAGE ============
 app.get('/', async (c) => {
+  // Capture Meta's case-sensitive fbclid at the first HTTP request and persist a correctly
+  // formatted first-party _fbc cookie for 90 days. URLSearchParams preserves character case;
+  // resolveMetaFbc() either keeps an already-matching cookie byte-for-byte or builds
+  // `fb.1.<first-seen-ms>.<exact-fbclid>`. This happens before the Pixel SDK loads, so CAPI
+  // never needs to lowercase, hash or guess the ClickID later.
+  const landingUrl = new URL(c.req.url)
+  const urlFbclid = landingUrl.searchParams.get('fbclid') || ''
+  if (urlFbclid) {
+    const existingFbc = getCookie(c, '_fbc') || ''
+    const observedAt = Date.now()
+    const currentFbc = resolveMetaFbc(existingFbc, urlFbclid, String(observedAt), observedAt)
+    if (currentFbc && currentFbc !== existingFbc) {
+      setCookie(c, '_fbc', currentFbc, {
+        httpOnly: false,
+        secure: landingUrl.protocol === 'https:',
+        sameSite: 'Lax',
+        path: '/',
+        maxAge: 90 * 24 * 60 * 60
+      })
+    }
+  }
+
   const s = await getSettings(c.env.DB, ['seo_title', 'seo_description', 'seo_keywords', 'og_image', 'canonical_url', 'robots',
     'fb_share_title', 'fb_share_description', 'brand_name', 'brand_tagline', 'brand_logo', 'meta_pixel_id', 'meta_pixel_enabled',
     'meta_events_enabled', 'ga_id', 'gtm_id', 'tiktok_pixel_id', 'favicon_url', 'custom_font_family'])
@@ -109,6 +132,9 @@ app.get('/', async (c) => {
   // standard events" (it was previously unset in production, which is what silenced the
   // browser pixel entirely) so this is true unless the admin deliberately opted out.
   const basePageView = effectiveMetaEvents(s.meta_events_enabled).split(',').includes('PageView')
+  // Normalize a cryptographically strong PageView ID on the server before HTML emission.
+  // The inline Pixel and landing.js CAPI report both receive this exact immutable value.
+  const pageViewEventId = `pageview_${generateToken(16)}`
 
   // BROWSER PIXEL — FAIL-OPEN enablement (2026-09-05 fix).
   // The browser Pixel is ON whenever a Pixel ID is configured, UNLESS the admin explicitly
@@ -134,7 +160,7 @@ app.get('/', async (c) => {
   // server-side CAPI PageView deduplicates against this browser one instead of counting
   // twice. Without a shared event_id Meta cannot pair them and flags the dataset with
   // "PageView events are not deduplicated".
-  window.NCB_PV_ID = 'pv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+  window.NCB_PV_ID = '${pageViewEventId}';
   fbq('track', 'PageView', {}, { eventID: window.NCB_PV_ID });` : ''}
   </script>${basePageView ? `
   <noscript><img height="1" width="1" style="display:none" alt="" src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"></noscript>` : ''}` : ''

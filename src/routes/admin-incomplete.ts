@@ -1,7 +1,12 @@
 // ============ Admin: Incomplete (abandoned) orders + Pixel setup ============
 import { Hono } from 'hono'
-import type { Bindings } from '../lib/helpers'
-import { auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone, forwardToCapi, runBackground, normalizeTrackingSetting, requestHost, effectiveMetaEvents, DEFAULT_META_EVENTS, pixelHostLockState, META_GRAPH_API_VERSION } from '../lib/helpers'
+import type { Bindings, MetaCapiStandardEvent } from '../lib/helpers'
+import {
+  auditLog, getSettings, setSetting, generateToken, validBDPhone, normalizePhone,
+  forwardToCapi, runBackground, normalizeTrackingSetting, requestHost, effectiveMetaEvents,
+  DEFAULT_META_EVENTS, pixelHostLockState, META_GRAPH_API_VERSION, buildMetaPurchaseDataResult,
+  resolveMetaFbc, resolveMetaEventId, logTrackingDiagnostic
+} from '../lib/helpers'
 import { requireAuth, AdminUser } from '../lib/auth'
 
 type Env = { Bindings: Bindings; Variables: { user: AdminUser } }
@@ -123,7 +128,18 @@ inc.post('/:id/convert', async (c) => {
   }
 
   const orderNumber = `NCB-${Date.now().toString(36).toUpperCase().slice(-4)}${Math.floor(10000 + Math.random() * 90000)}`
-  const eventId = generateToken(16)
+  const eventId = resolveMetaEventId(`purchase_${generateToken(16)}`, 'Purchase').eventId
+  const metaPurchaseBuild = buildMetaPurchaseDataResult(grandTotal, orderNumber, [{
+    product_id: product.id, quantity: qty, unit_price: unitPrice
+  }])
+  const metaPurchase = metaPurchaseBuild.data
+  if (metaPurchaseBuild.usedFallback) {
+    await logTrackingDiagnostic(db, {
+      severity: 'critical', code: 'PURCHASE_DATA_FALLBACK', source: 'admin_recovery',
+      eventName: 'Purchase', eventId,
+      details: { recovery_source: 'trusted_item_totals', issues: metaPurchaseBuild.issues }
+    })
+  }
   const res = await db.prepare(`
     INSERT INTO orders (order_number, customer_id, customer_name, phone, alt_phone, address, district, upazila,
       order_note, subtotal, discount, delivery_charge, grand_total, status, risk_score, risk_level, risk_reasons,
@@ -153,7 +169,16 @@ inc.post('/:id/convert', async (c) => {
   await db.prepare(
     `INSERT OR IGNORE INTO tracking_events (event_id, event_name, event_data, source_url, ip_address, user_agent, fbclid)
      VALUES (?, 'Purchase', ?, '', ?, '', ?)`
-  ).bind(eventId, JSON.stringify({ order_number: orderNumber, value: grandTotal, currency: 'BDT' }), io.ip_address || '', io.fbclid || '').run()
+  ).bind(eventId, JSON.stringify(metaPurchase), io.ip_address || '', io.fbclid || '').run()
+  const firstSeenMs = Number.isFinite(Date.parse(io.created_at || '')) ? String(Date.parse(io.created_at)) : ''
+  const recoveredFbc = resolveMetaFbc(null, io.fbclid || '', firstSeenMs) || null
+  if (io.fbclid && !recoveredFbc) {
+    await logTrackingDiagnostic(db, {
+      severity: 'warning', code: 'FBC_MISSING_WITH_FBCLID', source: 'admin_recovery',
+      eventName: 'Purchase', eventId,
+      details: { fbc_present: false, fbclid_present: true }
+    })
+  }
   await forwardToCapi(db, {
     eventName: 'Purchase',
     eventId,
@@ -162,15 +187,11 @@ inc.post('/:id/convert', async (c) => {
     ua: io.user_agent || '',
     requestHost: requestHost(c),
     fbclid: io.fbclid || '',
-    fbclidTs: '',
+    fbclidTs: firstSeenMs,
+    fbc: recoveredFbc,
     customerName: io.customer_name || '',
     customerPhone: normalizedPhone,
-    customData: {
-      value: grandTotal, currency: 'BDT',
-      content_ids: [String(product.id)], content_type: 'product',
-      contents: [{ id: String(product.id), quantity: qty, item_price: unitPrice }],
-      num_items: qty, order_number: orderNumber
-    }
+    customData: metaPurchase
   })
 
   return c.json({ success: true, order_id: orderId, order_number: orderNumber })
@@ -214,10 +235,18 @@ pixel.get('/', async (c) => {
   const lock = await pixelHostLockState(db, requestHost(c))
   const browserWillFire = pixelOn && lock.allowed ? browserEvents : []
 
-  const [eventStats, recent, capiStats] = await Promise.all([
+  const [eventStats, recent, capiStats, diagnosticStats, recentDiagnostics] = await Promise.all([
     db.prepare(`SELECT event_name, COUNT(*) as cnt, SUM(sent_to_capi) as capi_sent FROM tracking_events WHERE created_at > datetime('now', '-7 days') GROUP BY event_name ORDER BY cnt DESC`).all(),
     db.prepare(`SELECT id, event_id, event_name, event_data, source_url, sent_to_capi, capi_response, fbclid, created_at FROM tracking_events ORDER BY id DESC LIMIT 30`).all(),
-    db.prepare(`SELECT COUNT(*) as total, SUM(sent_to_capi) as sent, SUM(CASE WHEN capi_response LIKE 'error%' OR (capi_response != '' AND capi_response IS NOT NULL AND sent_to_capi = 0) THEN 1 ELSE 0 END) as failed FROM tracking_events WHERE created_at > datetime('now', '-7 days')`).first<any>()
+    db.prepare(`SELECT COUNT(*) as total, SUM(sent_to_capi) as sent, SUM(CASE WHEN capi_response LIKE 'error%' OR (capi_response != '' AND capi_response IS NOT NULL AND sent_to_capi = 0) THEN 1 ELSE 0 END) as failed FROM tracking_events WHERE created_at > datetime('now', '-7 days')`).first<any>(),
+    db.prepare(`SELECT COUNT(*) as total_7d,
+      SUM(CASE WHEN created_at > datetime('now', '-24 hours') THEN 1 ELSE 0 END) as total_24h,
+      SUM(CASE WHEN severity = 'critical' AND created_at > datetime('now', '-24 hours') THEN 1 ELSE 0 END) as critical_24h,
+      SUM(CASE WHEN code = 'EVENT_ID_FALLBACK' AND created_at > datetime('now', '-7 days') THEN 1 ELSE 0 END) as event_id_fallbacks_7d,
+      SUM(CASE WHEN code = 'PURCHASE_DATA_FALLBACK' AND created_at > datetime('now', '-7 days') THEN 1 ELSE 0 END) as purchase_fallbacks_7d
+      FROM tracking_diagnostics WHERE created_at > datetime('now', '-7 days')`).first<any>().catch(() => null),
+    db.prepare(`SELECT id, severity, code, source, event_name, event_id, details, created_at
+      FROM tracking_diagnostics ORDER BY id DESC LIMIT 30`).all().catch(() => ({ results: [] } as any))
   ])
 
   return c.json({
@@ -225,6 +254,18 @@ pixel.get('/', async (c) => {
     event_stats: eventStats.results || [],
     recent_events: (recent.results || []).map((e: any) => ({ ...e, capi_response: (e.capi_response || '').slice(0, 200) })),
     capi_stats: { total: capiStats?.total || 0, sent: capiStats?.sent || 0, failed: capiStats?.failed || 0 },
+    diagnostic_stats: {
+      total_7d: diagnosticStats?.total_7d || 0,
+      total_24h: diagnosticStats?.total_24h || 0,
+      critical_24h: diagnosticStats?.critical_24h || 0,
+      event_id_fallbacks_7d: diagnosticStats?.event_id_fallbacks_7d || 0,
+      purchase_fallbacks_7d: diagnosticStats?.purchase_fallbacks_7d || 0
+    },
+    recent_diagnostics: ((recentDiagnostics as any).results || []).map((d: any) => {
+      let details: Record<string, unknown> = {}
+      try { details = JSON.parse(d.details || '{}') } catch {}
+      return { ...d, details }
+    }),
     health: {
       pixel_configured: !!(s.meta_pixel_id),
       pixel_enabled: !!(s.meta_pixel_id) && (s.meta_pixel_enabled || '').trim() !== '0',
@@ -237,7 +278,8 @@ pixel.get('/', async (c) => {
       browser_pixel_all_events: browserWillFire.length === DEFAULT_META_EVENTS.split(',').length,
       host_allowed: lock.allowed,
       host_lock_enabled: lock.lock,
-      request_host: requestHost(c)
+      request_host: requestHost(c),
+      tracking_contract_healthy: Number(diagnosticStats?.critical_24h || 0) === 0
     }
   })
 })
@@ -269,7 +311,7 @@ pixel.post('/test-event', async (c) => {
   if (!s.meta_pixel_id || !s.meta_capi_token) {
     return c.json({ error: 'not_configured', message: 'Pixel ID ও CAPI Token আগে সেট করুন' }, 400)
   }
-  const eventId = 'test_' + generateToken(12)
+  const eventId = resolveMetaEventId('test_' + generateToken(12), 'PageView').eventId
   // The source URL must be the REAL admin URL, not a placeholder. The old code sent
   // 'https://admin-test-event', which made Meta show a phantom 4th "website" named
   // `admin-test-event` in Events Manager → Data Sources → Websites — each press of this
@@ -278,17 +320,25 @@ pixel.post('/test-event', async (c) => {
   // NOTE: set a Test Event Code (meta_test_event_code) so test events land in the
   // "Test Events" tab instead of the production data entirely.
   const adminUrl = (() => { try { return new URL(c.req.url).origin + '/admin' } catch { return 'https://naturalcarebangladesh.shop/admin' } })()
+  const testEvent: MetaCapiStandardEvent = {
+    eventName: 'PageView', eventId,
+    // Required explicit field: admin test traffic has no attributable Meta click.
+    fbc: null,
+    sourceUrl: adminUrl,
+    customData: {}
+  }
   const payload: any = {
     data: [{
-      event_name: 'PageView',
+      event_name: testEvent.eventName,
       event_time: Math.floor(Date.now() / 1000),
-      event_id: eventId,
+      event_id: testEvent.eventId,
       action_source: 'website',
-      event_source_url: adminUrl,
+      event_source_url: testEvent.sourceUrl,
       user_data: {
         client_ip_address: c.req.header('cf-connecting-ip') || '127.0.0.1',
         client_user_agent: c.req.header('user-agent') || 'admin-test'
-      }
+      },
+      custom_data: testEvent.customData
     }],
     access_token: s.meta_capi_token
   }
@@ -300,8 +350,20 @@ pixel.post('/test-event', async (c) => {
     })
     const txt = await resp.text()
     await auditLog(db, user.id, user.username, 'test', 'pixel_capi', eventId, `CAPI test event: ${resp.ok ? 'OK' : 'FAILED'}`)
+    if (!resp.ok) {
+      await logTrackingDiagnostic(db, {
+        severity: 'critical', code: 'CAPI_HTTP_ERROR', source: 'capi',
+        eventName: 'PageView', eventId,
+        details: { test_event: true, http_status: resp.status, response: txt.slice(0, 300) }
+      })
+    }
     return c.json({ success: resp.ok, status: resp.status, response: txt.slice(0, 500), event_id: eventId, test_event_code: s.meta_test_event_code || null })
   } catch (e: any) {
+    await logTrackingDiagnostic(db, {
+      severity: 'critical', code: 'CAPI_EXCEPTION', source: 'capi',
+      eventName: 'PageView', eventId,
+      details: { test_event: true, message: String(e?.message || e).slice(0, 300) }
+    })
     return c.json({ success: false, error: e.message }, 500)
   }
 })

@@ -110,7 +110,10 @@
     });
   }
 
-  var state = { data: null, cart: {}, utm: {}, submitting: false };
+  var state = {
+    data: null, cart: {}, utm: {}, submitting: false,
+    metaFbc: null, lastCompletedOrder: null, trackingDiagnostics: [], invalidFbcWarned: false
+  };
 
   // ---- Checkout session id (for incomplete-order capture) ----
   var sessionId = null;
@@ -153,8 +156,48 @@
   state.utm.ad_id = params.get('ad_id') || '';
 
   // ---- Event tracking (client pixel + server-side dedup) ----
-  function genEventId() {
-    return 'ev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+  function trackingWarn(code, details) {
+    if (window.console && typeof window.console.warn === 'function') {
+      window.console.warn('[MetaTracking][' + code + ']', details || {});
+    }
+    // Send contract/fallback warnings with the same event report so they are persisted in
+    // D1 and visible in Admin → Pixel health. Network-only warnings remain console-only.
+    if (['EVENT_ID_FALLBACK', 'PURCHASE_DATA_FALLBACK', 'FBC_MISSING_WITH_FBCLID', 'FBC_INVALID'].indexOf(code) !== -1) {
+      state.trackingDiagnostics.push({ code: code, details: details || {}, at: new Date().toISOString() });
+      if (state.trackingDiagnostics.length > 20) state.trackingDiagnostics.shift();
+    }
+  }
+
+  function validEventId(value) {
+    return typeof value === 'string' && value.length > 0 && value.length <= 512 &&
+      value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value);
+  }
+
+  function resolveBrowserEventId(eventName, candidate) {
+    if (validEventId(candidate)) return candidate;
+    var recovered = genEventId(String(eventName || 'event').toLowerCase() + '_recovered');
+    trackingWarn('EVENT_ID_FALLBACK', {
+      event_name: eventName,
+      reason: candidate === undefined || candidate === null || candidate === '' ? 'missing' : 'invalid',
+      recovered_event_id: recovered
+    });
+    return recovered;
+  }
+
+  function genEventId(prefix) {
+    // One ID is generated ONCE per customer action, then passed unchanged to both Pixel
+    // (`eventID`) and CAPI (`event_id`). Prefer a UUID; the fallback still has timestamp +
+    // cryptographic random bytes. Never lowercase, trim or truncate this value later.
+    var kind = prefix || 'event';
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return kind + '_' + window.crypto.randomUUID();
+    }
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+      var bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      return kind + '_' + Array.prototype.map.call(bytes, function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    }
+    return kind + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
   }
 
   // Read a browser cookie by name. Used for _fbp/_fbc — cookies the Meta Pixel SDK sets and
@@ -167,7 +210,62 @@
   // value we reconstruct manually from fbclid+fbclid_ts.
   function getCookie(name) {
     var match = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
-    return match ? decodeURIComponent(match.pop()) : '';
+    if (!match) return '';
+    var raw = match[2] || '';
+    try { return decodeURIComponent(raw); } catch (e) { return raw; }
+  }
+
+  // Ensure a first-party _fbc exists even if the Meta SDK is delayed/blocked. The server
+  // also sets this on the initial HTML response; this is a client fallback for mixed-cache
+  // deployments. fbclid is CASE-SENSITIVE: compare and copy it exactly — no trim, hashing,
+  // lowercasing, uppercasing or slicing. A new ad click replaces a stale cookie using the
+  // timestamp from when that exact click was first observed (milliseconds, not seconds).
+  function persistExactFbc() {
+    var currentUrlClickId = params.get('fbclid');
+    var clickId = currentUrlClickId || state.utm.fbclid;
+    if (!clickId || /[\u0000-\u0020\u007f]/.test(clickId) || clickId.length > 1024) return '';
+    var existing = getCookie('_fbc');
+    var parsed = /^fb\.\d+\.\d{13}\.(.+)$/.exec(existing);
+    if (parsed && parsed[1] === clickId) return existing;
+    // With no fbclid on THIS URL, a different valid cookie may represent a newer ad click
+    // from another tab. Keep it; an old sessionStorage value must never overwrite it.
+    if (parsed && !currentUrlClickId) return existing;
+
+    var ts = String(state.utm.fbclid_ts || '');
+    if (!/^\d{13}$/.test(ts)) ts = String(Date.now());
+    var fbc = 'fb.1.' + ts + '.' + clickId;
+    try {
+      document.cookie = '_fbc=' + encodeURIComponent(fbc) + '; Path=/; Max-Age=' + (90 * 24 * 60 * 60) + '; SameSite=Lax' +
+        (location.protocol === 'https:' ? '; Secure' : '');
+    } catch (e) {}
+    return fbc;
+  }
+  var initialMetaFbc = persistExactFbc() || getCookie('_fbc');
+  state.metaFbc = /^fb\.\d+\.\d{13}\.[^\u0000-\u0020\u007f]{1,1024}$/.test(initialMetaFbc) ? initialMetaFbc : null;
+  if (state.utm.fbclid && !state.metaFbc) {
+    trackingWarn('FBC_MISSING_WITH_FBCLID', { fbclid_present: true, fbc_present: false });
+  }
+
+  // Return a required normalized fbc field: exact real value or null for organic traffic.
+  function currentMetaFbc() {
+    var cookieValue = getCookie('_fbc');
+    if (/^fb\.\d+\.\d{13}\.[^\u0000-\u0020\u007f]{1,1024}$/.test(cookieValue)) {
+      state.metaFbc = cookieValue;
+      return cookieValue;
+    }
+    if (cookieValue && !state.invalidFbcWarned) {
+      state.invalidFbcWarned = true;
+      trackingWarn('FBC_INVALID', { fbc_present: true, fbclid_present: Boolean(state.utm.fbclid) });
+    }
+    if (state.utm.fbclid) {
+      var recovered = persistExactFbc();
+      if (recovered) {
+        state.metaFbc = recovered;
+        return recovered;
+      }
+      trackingWarn('FBC_MISSING_WITH_FBCLID', { fbclid_present: true, fbc_present: Boolean(cookieValue) });
+    }
+    return state.metaFbc || null;
   }
 
   // The standard Meta web-event set. Mirrors META_EVENT_NAMES in src/lib/helpers.ts.
@@ -234,23 +332,158 @@
     // SAME window.NCB_PV_ID that render() later reports to /api/public/events, so the
     // server-side CAPI PageView deduplicates against this browser copy.
     if (browserEventsAllowed().indexOf('PageView') !== -1) {
-      window.NCB_PV_ID = 'pv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+      window.NCB_PV_ID = resolveBrowserEventId('PageView', window.NCB_PV_ID || genEventId('pv'));
       window.fbq('track', 'PageView', {}, { eventID: window.NCB_PV_ID });
     }
+  }
+
+  function validPurchaseData(data, order) {
+    if (!data || typeof data !== 'object') return false;
+    if (typeof data.value !== 'number' || !Number.isFinite(data.value) || data.value < 0) return false;
+    if (typeof data.currency !== 'string' || !/^[A-Z]{3}$/.test(data.currency)) return false;
+    if (typeof data.order_id !== 'string' || !data.order_id) return false;
+    if (data.delivery_category !== 'home_delivery') return false;
+    if (data.content_type !== 'product' || !Array.isArray(data.content_ids) || !data.content_ids.length ||
+        !data.content_ids.every(function (id) { return typeof id === 'string' && id.length > 0; })) return false;
+    if (!Array.isArray(data.contents) || !data.contents.length) return false;
+    var validItems = data.contents.every(function (item) {
+      return item && typeof item.id === 'string' && item.id &&
+        typeof item.quantity === 'number' && Number.isFinite(item.quantity) && item.quantity > 0 &&
+        typeof item.item_price === 'number' && Number.isFinite(item.item_price) && item.item_price >= 0;
+    });
+    if (!validItems) return false;
+    var itemIds = data.contents.map(function (item) { return item.id; }).filter(function (id, index, all) { return all.indexOf(id) === index; });
+    if (itemIds.length !== data.content_ids.length || itemIds.some(function (id, index) { return id !== data.content_ids[index]; })) return false;
+    // After checkout, the order response is the authoritative current price/order identity.
+    // Reject even a finite but stale/hard-coded browser value so it cannot drift from CAPI.
+    if (order && Number.isFinite(Number(order.grand_total)) &&
+        Math.abs(Number(data.value) - Number(order.grand_total)) > 0.001) return false;
+    if (order && order.order_number && data.order_id !== String(order.order_number)) return false;
+    if (order && Array.isArray(order.items) && order.items.length) {
+      if (data.contents.length !== order.items.length) return false;
+      for (var i = 0; i < order.items.length; i++) {
+        var expected = order.items[i] || {};
+        var actual = data.contents[i] || {};
+        var expectedQty = Number(expected.quantity);
+        var expectedPrice = expected.unit_price != null ? Number(expected.unit_price) :
+          (Number(expected.total) / expectedQty);
+        if (String(actual.id) !== String(expected.product_id) || actual.quantity !== expectedQty ||
+            Math.abs(actual.item_price - roundTrackingMoney(expectedPrice)) > 0.001) return false;
+      }
+    }
+    return true;
+  }
+
+  function roundTrackingMoney(value) {
+    return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  }
+
+  // Non-throwing runtime safety net. Normal checkout returns the exact server-built object;
+  // only a corrupt/missing response is rebuilt from the authoritative order response and
+  // current catalog selection, with an immediate console warning.
+  function normalizePurchaseData(candidate, orderContext) {
+    var order = orderContext || state.lastCompletedOrder;
+    if (validPurchaseData(candidate, order)) return candidate;
+
+    var pricing = {};
+    try { pricing = getPricing() || {}; } catch (e) {}
+    var product = state.data && state.data.products && state.data.products[0];
+    var orderItems = order && Array.isArray(order.items) ? order.items : [];
+    var candidateContents = candidate && Array.isArray(candidate.contents) ? candidate.contents : [];
+    var orderTotal = order && order.grand_total != null ? Number(order.grand_total) : NaN;
+    var currentTotal = pricing.total != null ? Number(pricing.total) : NaN;
+    var candidateTotal = candidate && candidate.value != null ? Number(candidate.value) : NaN;
+    var value = Number.isFinite(orderTotal) && orderTotal >= 0 ? orderTotal :
+      (Number.isFinite(currentTotal) && currentTotal >= 0 ? currentTotal :
+        (Number.isFinite(candidateTotal) && candidateTotal >= 0 ? candidateTotal : 0));
+    var recoveredContents = [];
+    orderItems.forEach(function (item, index) {
+      var candidateItem = candidateContents[index] || {};
+      var quantity = Number(item && item.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) quantity = 1;
+      var id = String((item && item.product_id) || candidateItem.id || (product && product.id) || 'unknown');
+      var itemPrice = item && item.unit_price != null ? Number(item.unit_price) : NaN;
+      var itemTotal = item && item.total != null ? Number(item.total) : NaN;
+      if (!Number.isFinite(itemPrice) || itemPrice < 0) {
+        itemPrice = Number.isFinite(itemTotal) && itemTotal >= 0 ? itemTotal / quantity : NaN;
+      }
+      if (!Number.isFinite(itemPrice) || itemPrice < 0) itemPrice = value / Math.max(1, quantity);
+      recoveredContents.push({ id: id, quantity: quantity, item_price: roundTrackingMoney(itemPrice) });
+    });
+    if (!recoveredContents.length) {
+      var fallbackItem = candidateContents[0] || {};
+      var fallbackQuantity = Number(fallbackItem.quantity || 1);
+      if (!Number.isFinite(fallbackQuantity) || fallbackQuantity <= 0) fallbackQuantity = 1;
+      var fallbackId = String(fallbackItem.id || (product && product.id) || 'unknown');
+      var fallbackPrice = Number(fallbackItem.item_price);
+      if (!Number.isFinite(fallbackPrice) || fallbackPrice < 0) {
+        var subtotal = Number(pricing.subtotal);
+        fallbackPrice = Number.isFinite(subtotal) && subtotal >= 0 ? subtotal / fallbackQuantity : value / fallbackQuantity;
+      }
+      recoveredContents.push({ id: fallbackId, quantity: fallbackQuantity, item_price: roundTrackingMoney(fallbackPrice) });
+    }
+    var contentIds = recoveredContents.map(function (item) { return item.id; }).filter(function (id, index, all) { return all.indexOf(id) === index; });
+    var orderId = String((order && order.order_number) || (candidate && candidate.order_id) || genEventId('recovered_order'));
+    var recovered = {
+      value: roundTrackingMoney(value),
+      currency: candidate && /^[A-Z]{3}$/.test(String(candidate.currency || '')) ? candidate.currency : 'BDT',
+      content_ids: contentIds,
+      content_type: 'product',
+      contents: recoveredContents,
+      order_id: orderId,
+      delivery_category: 'home_delivery'
+    };
+    trackingWarn('PURCHASE_DATA_FALLBACK', {
+      recovery_source: Number.isFinite(orderTotal) ? 'order_response' : 'current_catalog',
+      order_id: orderId,
+      value: recovered.value
+    });
+    return recovered;
+  }
+
+  function normalizeEventData(eventName, data) {
+    if (eventName === 'Purchase') return normalizePurchaseData(data || {}, state.lastCompletedOrder);
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  }
+
+  // Runtime schema for the browser channel. All four required fields are resolved together
+  // before Pixel or CAPI is emitted; fbc is an exact real value or explicit null.
+  function normalizeTrackingEnvelope(eventName, data, eventId) {
+    return {
+      event_name: eventName,
+      event_id: resolveBrowserEventId(eventName, eventId),
+      fbc: currentMetaFbc(),
+      data: normalizeEventData(eventName, data)
+    };
   }
 
   // Report an event to OUR backend only (tracking_events log + server-side CAPI forward).
   // Deliberately makes NO window.fbq() call — used for PageView, which the base pixel
   // snippet in <head> has already fired for this page load.
-  function reportServerEvent(eventName, data, eventId, userData) {
-    var eid = eventId || genEventId();
+  function reportServerEvent(eventName, data, eventId, userData, preparedEnvelope) {
+    var envelope = preparedEnvelope || normalizeTrackingEnvelope(eventName, data, eventId);
+    var eid = envelope.event_id;
+    var eventData = envelope.data;
+
+    // Optional GTM bridge. GTM users can trigger on `ncb_meta_event` and read these Data
+    // Layer Variables. It intentionally contains no customer PII. If GTM owns the browser
+    // Pixel, disable this app's browser Pixel; never publish two browser Meta tags.
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({
+      event: 'ncb_meta_event',
+      meta_event_name: eventName,
+      meta_event_id: eid,
+      meta_event_data: eventData
+    });
+
+    var pendingDiagnostics = state.trackingDiagnostics.slice(0, 10);
     axios.post('/api/public/events', {
-      event_name: eventName, event_id: eid, data: data || {},
+      event_name: eventName, event_id: eid, data: eventData,
       source_url: location.href, fbclid: state.utm.fbclid || '', fbclid_ts: state.utm.fbclid_ts || '',
       // _fbp/_fbc straight from the Pixel's own cookies — sent to our backend so the
       // server-side CAPI call can include them too (browser Pixel already sends them
       // automatically; CAPI needs us to forward them manually).
-      fbp: getCookie('_fbp'), fbc: getCookie('_fbc'),
+      fbp: getCookie('_fbp'), fbc: envelope.fbc,
       // Optional customer name/phone -> forwarded to Meta CAPI (hashed server-side) for
       // Advanced Matching on non-Purchase events (e.g. Lead) once the customer has typed them.
       customer_name: (userData && userData.name) || '', customer_phone: (userData && userData.phone) || '',
@@ -260,8 +493,25 @@
       // later Purchase. This is the fix for events showing only fn/IP with no ph in Events
       // Manager — those early events genuinely have no phone yet, external_id is the match key
       // that works before the customer has typed anything.
-      session_id: sessionId || ''
-    }).catch(function () {});
+      session_id: sessionId || '',
+      client_diagnostics: pendingDiagnostics
+    }).then(function (response) {
+      if (pendingDiagnostics.length) state.trackingDiagnostics.splice(0, pendingDiagnostics.length);
+      var serverEventId = response && response.data && response.data.event_id;
+      if (serverEventId && serverEventId !== eid) {
+        trackingWarn('EVENT_ID_CHANNEL_MISMATCH', {
+          event_name: eventName, browser_event_id: eid, server_event_id: serverEventId
+        });
+      }
+      if (response && response.data && response.data.purchase_data_recovered) {
+        trackingWarn('SERVER_PURCHASE_DATA_FALLBACK', { event_name: eventName, event_id: eid });
+      }
+    }).catch(function (error) {
+      trackingWarn('SERVER_EVENT_REPORT_FAILED', {
+        event_name: eventName, event_id: eid,
+        status: error && error.response ? error.response.status : 0
+      });
+    });
     return eid;
   }
 
@@ -269,11 +519,13 @@
   // that shared id is what lets Meta deduplicate the browser copy and the server (CAPI)
   // copy of this event into a single conversion instead of counting it twice.
   function track(eventName, data, eventId, userData) {
-    var eid = eventId || genEventId();
-    if (browserPixelAllowed() && window.fbq && browserEventsAllowed().indexOf(eventName) !== -1) {
-      window.fbq('track', eventName, data || {}, { eventID: eid });
+    // Resolve the complete envelope once BEFORE either channel. Pixel and CAPI therefore
+    // receive the same event name, exact ID and (for Purchase) exact normalized data object.
+    var envelope = normalizeTrackingEnvelope(eventName, data, eventId);
+    if (browserPixelAllowed() && window.fbq && browserEventsAllowed().indexOf(envelope.event_name) !== -1) {
+      window.fbq('track', envelope.event_name, envelope.data, { eventID: envelope.event_id });
     }
-    return reportServerEvent(eventName, data, eid, userData);
+    return reportServerEvent(envelope.event_name, envelope.data, envelope.event_id, userData, envelope);
   }
 
   // Convert any BD phone format to Meta's required format: digits only, WITH
@@ -308,7 +560,8 @@
   // is why the order form's inputs carry proper autocomplete="name"/"tel" attributes.
   function applyAdvancedMatching(name, phone) {
     var s = state.data && state.data.settings;
-    if (!s || s.meta_advanced_matching !== '1' || !window.fbq || !s.meta_pixel_id) return;
+    // Do not re-initialize a GTM-owned Pixel when the website Pixel is explicitly off.
+    if (!s || !browserPixelAllowed() || s.meta_advanced_matching !== '1' || !window.fbq || !s.meta_pixel_id) return;
     var pixelId = String(s.meta_pixel_id).replace(/[^0-9]/g, '');
     var firstName = (name || '').trim().split(/\s+/)[0] || '';
     var metaPhone = toMetaPhone(phone);
@@ -545,7 +798,7 @@
     // Calling track('PageView') here instead would fire a SECOND browser PageView and
     // double-count every single page load.
     reportServerEvent('PageView', {}, window.NCB_PV_ID || null);
-    if (product) track('ViewContent', { content_name: product.name, content_ids: [String(product.id)], content_type: 'product', value: product.sale_price, currency: 'BDT' });
+    if (product) track('ViewContent', { content_name: product.name, content_ids: [String(product.id)], content_type: 'product', value: product.sale_price, currency: 'BDT' }, genEventId('viewcontent'));
   }
 
   // ============ HERO BANNER SLIDER ============
@@ -656,7 +909,7 @@
       package_id: pkg ? pkg.id : null, package_name: pkg ? pkg.name : '', quantity: 1,
       subtotal: pr.subtotal, delivery_charge: pr.delivery, grand_total: pr.total,
       source_url: location.href,
-      fbp: getCookie('_fbp'), fbc: getCookie('_fbc')
+      fbp: getCookie('_fbp'), fbc: currentMetaFbc()
     };
     Object.assign(payload, state.utm);
     axios.post('/api/public/incomplete', payload).catch(function () {});
@@ -885,7 +1138,7 @@
     if (checkoutTracked) return;
     checkoutTracked = true;
     var p = state.data.products[0];
-    if (p) track('InitiateCheckout', { content_ids: [String(p.id)], currency: 'BDT', value: getPricing().subtotal });
+    if (p) track('InitiateCheckout', { content_ids: [String(p.id)], currency: 'BDT', value: getPricing().subtotal }, genEventId('initiatecheckout'));
   }
   function selectPackage(pkgId, isUserAction) {
     selectedPkg = pkgId;
@@ -998,7 +1251,7 @@
       otp_verified: otpVerified,
       source_url: location.href,
       session_id: sessionId,
-      fbp: getCookie('_fbp'), fbc: getCookie('_fbc')
+      fbp: getCookie('_fbp'), fbc: currentMetaFbc()
     };
     Object.assign(payload, state.utm);
 
@@ -1006,7 +1259,11 @@
     // Pixel BEFORE firing Purchase, so this exact event carries fn/ph.
     applyAdvancedMatching(customerName, phone);
 
-    track('Lead', { content_name: p.name }, null, { name: customerName, phone: phone });
+    // LEAD DEDUP: generate once and pass the identical, case-preserved value to browser
+    // Pixel and /api/public/events → CAPI. A monitored backend fallback still protects old
+    // clients, but this typed/normalized flow never needs it.
+    var leadEventId = genEventId('lead');
+    track('Lead', { content_name: p.name }, leadEventId, { name: customerName, phone: phone });
 
     // PURCHASE DEDUP + DYNAMIC VALUE FIX (2026-09-04): the browser Purchase pixel now
     // fires ONLY AFTER the order API responds successfully, using the SERVER-issued
@@ -1025,16 +1282,14 @@
     // tracked — the guaranteed server-side CAPI Purchase covers that case on its own.
     axios.post('/api/public/orders', payload).then(function (r) {
       var o = r.data.order;
-      var netTotal = Number(o.grand_total) - Number(o.delivery_charge || 0);
-      var totalQty = o.items.reduce(function (s, it) { return s + (Number(it.quantity) || 1); }, 0) || 1;
-      // content_type:'product' + contents[] per Meta spec — required for catalog/DPA
-      // matching and improves the ad account's event match quality score.
-      track('Purchase', {
-        value: Number(o.grand_total), currency: 'BDT',
-        content_ids: [String(p.id)], content_type: 'product', content_name: p.name,
-        contents: [{ id: String(p.id), quantity: totalQty, item_price: Math.round(netTotal / totalQty * 100) / 100 }],
-        num_items: totalQty
-      }, o.event_id, { name: customerName, phone: phone });
+      state.lastCompletedOrder = o;
+      // The API computed this from authoritative DB/package/delivery prices and used the
+      // SAME object for CAPI. Reuse it verbatim for Pixel. If a mixed-version/corrupt response
+      // omits price or ID, the normalizers recover from this order response and warn loudly
+      // instead of dropping the conversion or sending a stale fixed amount.
+      var purchaseData = normalizePurchaseData(o.meta_purchase, o);
+      var purchaseEventId = resolveBrowserEventId('Purchase', o.event_id);
+      track('Purchase', purchaseData, purchaseEventId, { name: customerName, phone: phone });
       showConfirmation(o);
     }).catch(function (e) {
       state.submitting = false;
