@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   buildMetaPurchaseData,
   buildMetaPurchaseDataResult,
+  ensureTrackingDiagnosticsSchema,
   isMetaPurchaseData,
   isValidMetaEventId,
   logTrackingDiagnostic,
@@ -59,6 +60,23 @@ test('diagnostic logging cannot break an event when serialization or D1 persiste
   } finally {
     console.warn = originalWarn
   }
+})
+
+test('diagnostics schema self-heals idempotently when deployment migrations lag', async () => {
+  const batches = []
+  const db = {
+    prepare(sql) { return { sql } },
+    async batch(statements) { batches.push(statements); return statements.map(() => ({ success: true })) }
+  }
+
+  await ensureTrackingDiagnosticsSchema(db)
+  await ensureTrackingDiagnosticsSchema(db)
+
+  assert.equal(batches.length, 1)
+  const sql = batches[0].map(statement => statement.sql).join('\n')
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS tracking_diagnostics/)
+  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS idx_tracking_diagnostics_event_code_source/)
+  assert.match(sql, /CREATE TRIGGER IF NOT EXISTS trg_tracking_diagnostics_retention/)
 })
 
 test('a valid _fbc cookie is parsed and passed through byte-for-byte', () => {

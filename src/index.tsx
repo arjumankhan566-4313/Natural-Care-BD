@@ -2,7 +2,10 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { getCookie, setCookie } from 'hono/cookie'
 import type { Bindings } from './lib/helpers'
-import { getSettings, pixelHostLockState, requestHost, effectiveMetaEvents, resolveMetaFbc, generateToken } from './lib/helpers'
+import {
+  getSettings, pixelHostLockState, requestHost, effectiveMetaEvents, resolveMetaFbc,
+  generateToken, ensureTrackingDiagnosticsSchema
+} from './lib/helpers'
 import pub from './routes/public'
 import auth from './routes/auth'
 import adminOrders from './routes/admin-orders'
@@ -367,6 +370,12 @@ table{font-size:0.875rem}
 // syncPendingOrders() takes the atomic courier_sync_lock, so an overlapping lazy-trigger run
 // from the admin middleware is skipped safely.
 const scheduled: ExportedHandlerScheduledHandler<Bindings> = (event, env, ctx) => {
+  // Keep diagnostics operational even if an external Workers Build deploys before the
+  // separate GitHub Actions migration step (or repository Cloudflare secrets are absent).
+  ctx.waitUntil(
+    ensureTrackingDiagnosticsSchema(env.DB)
+      .catch((e) => console.error(`[cron ${event.cron}] tracking diagnostics schema bootstrap failed:`, e))
+  )
   ctx.waitUntil(
     syncPendingOrders(env.DB)
       .then((r) => console.log(`[cron ${event.cron}] steadfast sync: ${JSON.stringify(r)}`))

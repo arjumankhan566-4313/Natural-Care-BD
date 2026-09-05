@@ -80,7 +80,7 @@ fetch('/api/public/events', {
 }
 ```
 
-বর্তমান `landing.js` browser Pixel বা CAPI—কোনোটিই fire করার আগে একটি required tracking envelope বানায়: valid `event_id`, `fbc` key (real exact-case value অথবা organic traffic-এ `null`) এবং event data। তাই স্বাভাবিক flow-তে browser/server ID আলাদা হওয়ার সুযোগ নেই। কোনো পুরোনো/untyped client তবু missing বা malformed `event_id` পাঠালে backend আর `400` দিয়ে tracking request drop করে না; valid `*_recovered_*` ID বানিয়ে response-এ ফেরত দেয় এবং Workers log + `tracking_diagnostics`-এ **critical `EVENT_ID_FALLBACK`** লিখে। এই fallback legacy request বাঁচায়; এটি স্বাভাবিক dedup path-এর বিকল্প নয়।
+বর্তমান `landing.js` browser Pixel বা CAPI—কোনোটিই fire করার আগে একটি required tracking envelope বানায়: valid `event_id`, `fbc` key (real exact-case value অথবা organic traffic-এ `null`) এবং event data। D1 migration deploy-এর চেয়ে পিছিয়ে গেলেও public content request, ৫-মিনিট cron এবং diagnostic logger-এর idempotent bootstrap `tracking_diagnostics` table/index/retention trigger নিজে তৈরি করে; monitoring warning হারায় না। তাই স্বাভাবিক flow-তে browser/server ID আলাদা হওয়ার সুযোগ নেই। কোনো পুরোনো/untyped client তবু missing বা malformed `event_id` পাঠালে backend আর `400` দিয়ে tracking request drop করে না; valid `*_recovered_*` ID বানিয়ে response-এ ফেরত দেয় এবং Workers log + `tracking_diagnostics`-এ **critical `EVENT_ID_FALLBACK`** লিখে। এই fallback legacy request বাঁচায়; এটি স্বাভাবিক dedup path-এর বিকল্প নয়।
 
 ---
 
