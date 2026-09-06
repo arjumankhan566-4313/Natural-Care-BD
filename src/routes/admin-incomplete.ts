@@ -159,7 +159,15 @@ inc.post('/:id/convert', async (c) => {
     .bind(orderId, product.id, io.package_id || null, product.name, pkgName, qty, unitPrice, subtotal, product.product_cost).run()
   await db.prepare("INSERT INTO order_status_history (order_id, from_status, to_status, note, changed_by) VALUES (?, NULL, 'confirmed', ?, ?)")
     .bind(orderId, `Recovered from incomplete order #${id} by ${user.username}`, user.username).run()
-  await db.prepare("UPDATE incomplete_orders SET status = 'converted', order_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(orderId, id).run()
+  // TRANSFER, not copy: the real order now exists above (orders + order_items +
+  // order_status_history), so permanently remove the lead from incomplete_orders.
+  // Previously this only did UPDATE ... SET status='converted', which kept the row in
+  // the Incomplete Orders list and in the dashboard's incomplete/recovery counts.
+  // Deleting it makes this a true move: the list tabs, status_counts and dashboard
+  // queries all read incomplete_orders, so every count updates automatically.
+  // NOTE: everything needed below (io.*) was already read into memory at the top of
+  // this handler, so the Meta CAPI Purchase forwarding below is unaffected.
+  await db.prepare('DELETE FROM incomplete_orders WHERE id = ?').bind(id).run()
   await auditLog(db, user.id, user.username, 'convert', 'incomplete_order', String(id), `Converted to order ${orderNumber}`)
 
   // Send Purchase event to Meta CAPI — this order came from an incomplete-order recovery
