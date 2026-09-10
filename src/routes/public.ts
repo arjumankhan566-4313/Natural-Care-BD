@@ -8,7 +8,7 @@ import {
   sendSms, fillSmsTemplate, validCustomerName, validAddress, validUpazila, resolveDistrict, requestHost,
   effectiveMetaEvents, pixelHostLockState, buildMetaPurchaseDataResult,
   isMetaEventName, resolveMetaEventId, recoverMetaPurchaseData, logTrackingDiagnostic, resolveMetaFbc,
-  parseMetaFbc, ensureTrackingDiagnosticsSchema
+  parseMetaFbc, ensureTrackingDiagnosticsSchema, requestClientIp
 } from '../lib/helpers'
 import { calculateRisk } from '../lib/risk'
 import { rateLimit } from '../lib/auth'
@@ -391,7 +391,7 @@ pub.post('/orders', rateLimit(10, 60_000), async (c) => {
     fbc: requestFbc,
     customerName: name,
     customerPhone: phone,
-    externalId: typeof body.session_id === 'string' ? body.session_id.slice(0, 128) : '',
+    externalId: typeof body.external_id === 'string' ? body.external_id.slice(0, 128) : getCookie(c, '_user_ext_id') || '',
     customData: metaPurchase
   }))
 
@@ -515,7 +515,7 @@ pub.post('/events', rateLimit(60, 60_000), async (c) => {
     }))
   }
 
-  const ip = c.req.header('cf-connecting-ip') || 'unknown'
+  const ip = requestClientIp(c.req.raw.headers)
   const ua = (c.req.header('user-agent') || '').slice(0, 300)
   const requestFbp = getCookie(c, '_fbp') || (typeof body.fbp === 'string' ? body.fbp : '')
   const cookieRequestFbc = getCookie(c, '_fbc') || ''
@@ -570,7 +570,12 @@ pub.post('/events', rateLimit(60, 60_000), async (c) => {
       fbp: requestFbp, fbc: requestFbc,
       customerName: typeof body.customer_name === 'string' ? body.customer_name : '',
       customerPhone: typeof body.customer_phone === 'string' ? body.customer_phone : '',
-      externalId: typeof body.session_id === 'string' ? body.session_id.slice(0, 128) : '',
+      customerEmail: typeof body.customer_email === 'string' ? body.customer_email : '',
+      customerCity: typeof body.customer_city === 'string' ? body.customer_city : '',
+      customerState: typeof body.customer_state === 'string' ? body.customer_state : '',
+      customerZip: typeof body.customer_zip === 'string' ? body.customer_zip : '',
+      customerDob: typeof body.customer_dob === 'string' ? body.customer_dob : '',
+      externalId: typeof body.external_id === 'string' ? body.external_id.slice(0, 128) : '',
       customData: eventData
     }))
   }

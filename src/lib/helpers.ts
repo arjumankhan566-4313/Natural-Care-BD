@@ -156,6 +156,44 @@ export async function sha256Hex(input: string): Promise<string> {
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
+// Meta customer-information normalization. Email/name/location values are lowercased
+// and whitespace is removed; phone values keep digits only and are expected to include
+// a country code before hashing. The helper is deliberately reusable for every supported
+// PII field instead of maintaining one-off hashing rules per event.
+export function normalizeMetaCustomerValue(value: unknown, field: MetaCustomerField): string {
+  const raw = String(value ?? '').trim().toLowerCase()
+  if (!raw) return ''
+  if (field === 'ph') return raw.replace(/[^0-9]/g, '')
+  if (field === 'db') return raw.replace(/[^0-9]/g, '')
+  return raw.replace(/\s+/g, '')
+}
+
+export type MetaCustomerField = 'em' | 'ph' | 'fn' | 'ln' | 'ct' | 'st' | 'zp' | 'db'
+
+export async function hashMetaCustomerValue(value: unknown, field: MetaCustomerField): Promise<string | undefined> {
+  const normalized = normalizeMetaCustomerValue(value, field)
+  return normalized ? sha256Hex(normalized) : undefined
+}
+
+export async function hashMetaCustomerValues(values: Partial<Record<MetaCustomerField, unknown>>): Promise<Record<string, string[]>> {
+  const result: Record<string, string[]> = {}
+  for (const field of ['em', 'ph', 'fn', 'ln', 'ct', 'st', 'zp', 'db'] as MetaCustomerField[]) {
+    const hashed = await hashMetaCustomerValue(values[field], field)
+    if (hashed) result[field] = [hashed]
+  }
+  return result
+}
+
+function firstForwardedIp(value: string | undefined): string {
+  return (value || '').split(',')[0]?.trim() || ''
+}
+
+export function requestClientIp(headers: { get(name: string): string | null }): string {
+  return firstForwardedIp(headers.get('cf-connecting-ip') || undefined) ||
+    firstForwardedIp(headers.get('x-forwarded-for') || undefined) ||
+    firstForwardedIp(headers.get('x-real-ip') || undefined) || 'unknown'
+}
+
 // Normalize + hash a first name for Meta's `fn` field: lowercase letters only,
 // per spec ("Using Roman alphabet a-z characters is recommended. Lowercase only
 // with no punctuation."). We keep UTF-8 (e.g. Bengali) characters as-is since
@@ -608,6 +646,11 @@ export type MetaCapiBaseEvent<N extends MetaEventName, D extends Record<string, 
     fbp?: string
     customerName?: string
     customerPhone?: string
+    customerEmail?: string
+    customerCity?: string
+    customerState?: string
+    customerZip?: string
+    customerDob?: string
     externalId?: string
     requestHost?: string
   }>
@@ -857,24 +900,24 @@ export async function forwardToCapi(
     // Event Match Quality for the EARLY, high-volume events (PageView/ViewContent/
     // InitiateCheckout) that otherwise carry only IP + user-agent — exactly the gap that was
     // showing as "শুধু fn/ln আর IP আসছে, ph আসছে না" for those events in Events Manager.
-    if (params.externalId) userData.external_id = await sha256Hex(params.externalId)
+    if (params.externalId) userData.external_id = [await sha256Hex(params.externalId)]
     // Advanced Matching (ph/fn) — required by Meta ads booster for higher match quality.
     // Both fields must be SHA-256 hashed per Meta CAPI spec (unlike the browser Pixel,
     // which auto-hashes plain text passed to fbq('init', ..., {ph, fn})).
     // ph must include the 880 country code, digits only, no leading zero.
     if (s.meta_advanced_matching === '1') {
-      if (params.customerPhone) {
-        const hashedPh = await hashMetaPhone(params.customerPhone)
-        if (hashedPh) userData.ph = hashedPh
-      }
-      if (params.customerName) {
-        const hashedFn = await hashMetaFirstName(params.customerName)
-        if (hashedFn) userData.fn = hashedFn
-        // ln (last name) — previously never sent. Meta's EMQ scoring specifically
-        // checks for fn+ln together; sending fn alone caps the achievable score.
-        const hashedLn = await hashMetaLastName(params.customerName)
-        if (hashedLn) userData.ln = hashedLn
-      }
+      const nameParts = (params.customerName || '').trim().split(/\s+/).filter(Boolean)
+      const hashedPii = await hashMetaCustomerValues({
+        em: params.customerEmail,
+        ph: toMetaPhone(params.customerPhone || ''),
+        fn: nameParts[0],
+        ln: nameParts.length > 1 ? nameParts[nameParts.length - 1] : undefined,
+        ct: params.customerCity,
+        st: params.customerState,
+        zp: params.customerZip,
+        db: params.customerDob
+      })
+      Object.assign(userData, hashedPii)
     }
 
     let customData: Record<string, unknown> = params.customData

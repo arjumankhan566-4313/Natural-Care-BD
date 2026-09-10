@@ -115,6 +115,36 @@
     metaFbc: null, lastCompletedOrder: null, trackingDiagnostics: [], invalidFbcWarned: false
   };
 
+  // ---- Persistent first-party visitor identity ----
+  // Keep the legacy checkout session separately because incomplete-order recovery uses it.
+  // `_user_ext_id` is the stable anonymous identity sent with every browser/CAPI event.
+  function readCookie(name) {
+    var match = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    if (!match) return '';
+    try { return decodeURIComponent(match[2] || ''); } catch (e) { return match[2] || ''; }
+  }
+  function createUuid() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+      var bytes = new Uint8Array(16); window.crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+      return Array.prototype.map.call(bytes, function (b, i) {
+        return ([4, 6, 8, 10].indexOf(i) !== -1 ? '-' : '') + b.toString(16).padStart(2, '0');
+      }).join('');
+    }
+    return 'fallback-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 14);
+  }
+  function getOrCreateExternalId() {
+    var id = readCookie('_user_ext_id');
+    if (!/^[a-zA-Z0-9._-]{16,128}$/.test(id)) id = createUuid();
+    try {
+      document.cookie = '_user_ext_id=' + encodeURIComponent(id) + '; Path=/; Max-Age=' + (365 * 24 * 60 * 60) + '; SameSite=Lax' +
+        (location.protocol === 'https:' ? '; Secure' : '');
+    } catch (e) {}
+    return id;
+  }
+  var externalId = getOrCreateExternalId();
+
   // ---- Checkout session id (for incomplete-order capture) ----
   var sessionId = null;
   try {
@@ -326,7 +356,7 @@
       t = b.createElement(e); t.async = !0; t.src = v;
       x = b.getElementsByTagName(e)[0]; x.parentNode.insertBefore(t, x);
     }(window, document, 'script', 'https://connect.facebook.net/en_US/fbevents.js');
-    window.fbq('init', pixelId);
+    window.fbq('init', pixelId, { external_id: externalId });
     window.__ncbPixelBaseInjected = true;
     // PageView belongs in the base code and fires exactly ONCE per page load. Reuse the
     // SAME window.NCB_PV_ID that render() later reports to /api/public/events, so the
@@ -483,10 +513,13 @@
       // _fbp/_fbc straight from the Pixel's own cookies — sent to our backend so the
       // server-side CAPI call can include them too (browser Pixel already sends them
       // automatically; CAPI needs us to forward them manually).
-      fbp: getCookie('_fbp'), fbc: envelope.fbc,
+      fbp: getCookie('_fbp'), fbc: envelope.fbc, external_id: externalId,
       // Optional customer name/phone -> forwarded to Meta CAPI (hashed server-side) for
       // Advanced Matching on non-Purchase events (e.g. Lead) once the customer has typed them.
       customer_name: (userData && userData.name) || '', customer_phone: (userData && userData.phone) || '',
+      customer_email: (userData && userData.email) || '', customer_city: (userData && userData.city) || '',
+      customer_state: (userData && userData.state) || '', customer_zip: (userData && userData.zip) || '',
+      customer_dob: (userData && userData.dob) || '',
       // session_id -> forwarded to Meta as external_id (hashed server-side). Same value for
       // EVERY event in this visitor's session (PageView through Purchase), so Meta can link an
       // early, name/phone-less event (PageView/ViewContent/InitiateCheckout) to the SAME person's
@@ -1251,6 +1284,7 @@
       otp_verified: otpVerified,
       source_url: location.href,
       session_id: sessionId,
+      external_id: externalId,
       fbp: getCookie('_fbp'), fbc: currentMetaFbc()
     };
     Object.assign(payload, state.utm);

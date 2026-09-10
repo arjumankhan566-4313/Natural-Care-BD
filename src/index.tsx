@@ -111,6 +111,12 @@ app.get('/', async (c) => {
     }
   }
 
+  let externalId = getCookie(c, '_user_ext_id') || ''
+  if (!/^[a-zA-Z0-9._-]{16,128}$/.test(externalId)) externalId = crypto.randomUUID()
+  setCookie(c, '_user_ext_id', externalId, {
+    httpOnly: false, secure: landingUrl.protocol === 'https:', sameSite: 'Lax', path: '/', maxAge: 365 * 24 * 60 * 60
+  })
+
   const s = await getSettings(c.env.DB, ['seo_title', 'seo_description', 'seo_keywords', 'og_image', 'canonical_url', 'robots',
     'fb_share_title', 'fb_share_description', 'brand_name', 'brand_tagline', 'brand_logo', 'meta_pixel_id', 'meta_pixel_enabled',
     'meta_events_enabled', 'ga_id', 'gtm_id', 'tiktok_pixel_id', 'favicon_url', 'custom_font_family'])
@@ -155,7 +161,7 @@ app.get('/', async (c) => {
   <script>
   window.__ncbPixelBaseInjected = true;
   !function(f,b,e,v,n,t,x){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;x=b.getElementsByTagName(e)[0];x.parentNode.insertBefore(t,x)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
-  fbq('init', '${pixelId}');${basePageView ? `
+  fbq('init', '${pixelId}', ${JSON.stringify({ external_id: externalId })});${basePageView ? `
   // PageView belongs in the BASE code (Meta's standard placement, and what Events Manager
   // checks when it verifies the pixel is installed). It is fired exactly ONCE per page
   // load, here — public/static/landing.js no longer fires a second browser PageView.
